@@ -3,7 +3,12 @@
 import * as React from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 
-import { cn } from "./utils";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 const Switch = React.forwardRef<
   React.ElementRef<typeof SwitchPrimitive.Root>,

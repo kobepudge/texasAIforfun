@@ -1,5 +1,5 @@
 import { GameState } from '../types/poker';
-import { getRandomPersonality } from '../utils/ai-personalities';
+import { getRandomPersonality } from '../utils/ai-personalities.ts';
 
 // 🎯 9人桌初始配置常量
 export const INITIAL_PLAYERS = [
