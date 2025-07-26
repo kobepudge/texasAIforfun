@@ -1,19 +1,66 @@
+import { GameContext } from "../types/gto-poker.ts";
 import {
-  Card,
-  Rank,
-  Suit,
-  Player,
-  HandRanking,
-  GameState,
-  ActionHistoryItem,
-  PlayerBehavior,
-  PersonalityAnalysis,
-  Message,
+    ActionHistoryItem,
+    Card,
+    GameState,
+    HandRanking,
+    Message,
+    PersonalityAnalysis,
+    Player,
+    PlayerBehavior,
+    Rank,
+    Suit,
 } from "../types/poker.ts";
-import { GTODecision, GameContext } from "../types/gto-poker.ts";
-import { GTOAISystem, GTOAnalyzer } from "./gto-ai-system.ts";
-import { PlayerNotesManager, HandHistoryManager } from "./player-notes.ts";
-import { getPersonalityByKey } from "./ai-personalities.ts";
+import { HandHistoryManager, PlayerNotesManager } from "./player-notes.ts";
+import { RealtimeAISystem } from "./realtime-ai-system.ts";
+
+// 🚀 AI上下文缓存 - 简化版内置实现
+class SimpleAICache {
+  private static instance: SimpleAICache;
+  private playerProfiles: Map<string, any> = new Map();
+  private gameContexts: Map<string, any> = new Map();
+
+  public static getInstance(): SimpleAICache {
+    if (!SimpleAICache.instance) {
+      SimpleAICache.instance = new SimpleAICache();
+    }
+    return SimpleAICache.instance;
+  }
+
+  public updatePlayerProfile(playerId: string, action: string, amount: number, phase: string): void {
+    const profile = this.playerProfiles.get(playerId) || { actions: [], lastUpdate: Date.now() };
+    profile.actions.push({ action, amount, phase, timestamp: Date.now() });
+    profile.lastUpdate = Date.now();
+
+    // 保持最近20个行动
+    if (profile.actions.length > 20) {
+      profile.actions = profile.actions.slice(-20);
+    }
+
+    this.playerProfiles.set(playerId, profile);
+    console.log(`🧠 更新玩家档案: ${playerId}, 行动: ${action}`);
+  }
+
+  public getPlayerProfile(playerId: string): any {
+    return this.playerProfiles.get(playerId);
+  }
+
+  public cacheGameContext(gameState: GameState, playerId: string, context: any): void {
+    const key = `${gameState.phase}_${gameState.pot}_${playerId}`;
+    this.gameContexts.set(key, { ...context, timestamp: Date.now() });
+    console.log(`💾 缓存游戏上下文: ${key}`);
+  }
+
+  public getGameContext(gameState: GameState, playerId: string): any {
+    const key = `${gameState.phase}_${gameState.pot}_${playerId}`;
+    const cached = this.gameContexts.get(key);
+    if (cached && Date.now() - cached.timestamp < 30000) { // 30秒TTL
+      console.log(`🎯 命中游戏上下文缓存: ${key}`);
+      return cached;
+    }
+    return null;
+  }
+}
 
 // 获取阶段文本
 export function getPhaseText(phase: string): string {
@@ -553,15 +600,31 @@ export function shouldTransitionPhase(gameState: GameState): boolean {
   
   const allPlayersActed = playersCanAct.every(p => p.hasActed);
   console.log(`[阶段检查] 所有可行动玩家是否都已行动: ${allPlayersActed}`);
-  console.log(`[阶段检查] 可行动玩家行动状态:`, playersCanAct.map(p => ({ 
-    name: p.name, 
-    hasActed: p.hasActed, 
+  console.log(`[阶段检查] 可行动玩家行动状态:`, playersCanAct.map(p => ({
+    name: p.name,
+    hasActed: p.hasActed,
     currentBet: p.currentBet,
     chips: p.chips
   })));
-  
+
+  // 🚀 关键修复：如果没有玩家行动过，绝对不能转换阶段
   if (!allPlayersActed) {
     console.log(`[阶段检查] 还有玩家未行动，不应转换阶段`);
+    return false;
+  }
+
+  // 🚀 关键检查：确保至少有一个玩家真正行动过
+  const hasAnyPlayerActed = playersCanAct.some(p => p.hasActed);
+  if (!hasAnyPlayerActed) {
+    console.log(`[阶段检查] 没有任何玩家行动过，不应转换阶段`);
+    return false;
+  }
+
+  // 🚀 额外检查：如果所有玩家都没有行动且下注都为0，说明阶段刚开始
+  const allPlayersNoAction = playersCanAct.every(p => !p.hasActed);
+  const allBetsZero = playersCanAct.every(p => p.currentBet === 0);
+  if (allPlayersNoAction && allBetsZero) {
+    console.log(`[阶段检查] 所有玩家都未行动且下注为0，阶段刚开始，不应转换`);
     return false;
   }
   
@@ -680,18 +743,24 @@ export function extractDecisionFromText(
   gameState: GameState,
   player: Player,
 ): { action: string; amount?: number } | null {
-  console.log(`🔍 传统提取开始，文本长度: ${text.length}`);
-  console.log(`📝 文本前200字符:`, text.substring(0, 200));
+  console.log(`🔍 ===== JSON解析开始 =====`);
+  console.log(`👤 玩家: ${player.name}`);
+  console.log(`📝 原始文本长度: ${text.length}`);
+  console.log(`📄 完整原始文本:`, text);
 
   // 清理文本
   const cleanText = text.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
+  console.log(`🧹 清理后文本:`, cleanText);
 
-  // 方法1: 提取markdown代码块中的JSON
+  // 方法1: 提取markdown代码块中的JSON - 增强版
   const markdownPatterns = [
     /```json\s*(\{[\s\S]*?\})\s*```/gi,
     /```\s*(\{[\s\S]*?\})\s*```/gi,
     /`\`\`json\s*(\{[\s\S]*?\})\s*`\`\`/gi,
-    /`\`\`\s*(\{[\s\S]*?\})\s*`\`\`/gi
+    /`\`\`\s*(\{[\s\S]*?\})\s*`\`\`/gi,
+    // 新增：处理单行JSON
+    /```json\s*(\{[^}]*\})\s*```/gi,
+    /```\s*(\{[^}]*\})\s*```/gi
   ];
 
   for (const pattern of markdownPatterns) {
@@ -699,10 +768,18 @@ export function extractDecisionFromText(
     for (const match of matches) {
       if (match[1]) {
         try {
-          const jsonStr = match[1].trim();
-          console.log(`📋 传统提取到markdown JSON:`, jsonStr);
+          let jsonStr = match[1].trim();
+
+          // 🔧 JSON预处理 - 修复常见格式问题
+          jsonStr = jsonStr
+            .replace(/'/g, '"')  // 单引号转双引号
+            .replace(/(\w+):/g, '"$1":')  // 属性名加引号
+            .replace(/,\s*}/g, '}')  // 移除尾随逗号
+            .replace(/,\s*]/g, ']'); // 移除数组尾随逗号
+
+          console.log(`📋 提取到markdown JSON:`, jsonStr);
           const decision = JSON.parse(jsonStr);
-          console.log(`✅ 传统Markdown JSON解析成功:`, decision);
+          console.log(`✅ Markdown JSON解析成功:`, decision);
           
           if (decision.action && ["fold", "check", "call", "bet", "raise", "all-in"].includes(decision.action)) {
             // 将bet映射为raise以保持兼容性
@@ -721,7 +798,15 @@ export function extractDecisionFromText(
     }
   }
 
-  // 方法2: 提取标准JSON对象
+  // 方法2: 使用增强的JSON解析
+  console.log(`🔧 尝试增强JSON解析...`);
+  const enhancedResult = parseOptimizedDecisionJSON(text);
+  if (enhancedResult) {
+    console.log(`✅ 增强JSON解析成功:`, enhancedResult);
+    return enhancedResult;
+  }
+
+  // 方法3: 提取标准JSON对象（备用）
   const jsonPatterns = [
     /\{[\s\S]*?"action"[\s\S]*?\}/gi,
     /\{[\s\S]*?"reasoning"[\s\S]*?\}/gi,
@@ -733,11 +818,19 @@ export function extractDecisionFromText(
     const matches = Array.from(text.matchAll(pattern));
     for (const match of matches) {
       try {
-        const jsonStr = match[0].trim();
+        let jsonStr = match[0].trim();
+
+        // 应用修复
+        jsonStr = jsonStr
+          .replace(/'/g, '"')
+          .replace(/(\w+):/g, '"$1":')
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']');
+
         console.log(`📋 传统提取到标准JSON:`, jsonStr);
         const decision = JSON.parse(jsonStr);
         console.log(`✅ 传统标准JSON解析成功:`, decision);
-        
+
         if (decision.action && ["fold", "check", "call", "bet", "raise", "all-in"].includes(decision.action)) {
           // 将bet映射为raise以保持兼容性
           if (decision.action === "bet") {
@@ -778,6 +871,394 @@ export function extractDecisionFromText(
   return null;
 }
 
+// 🚀 实时AI事件触发器
+export async function initializeRealtimeAI(
+  player: Player,
+  gameState: GameState,
+  apiKey?: string,
+  baseUrl?: string,
+  model?: string
+): Promise<void> {
+  console.log(`🔧 ===== 初始化实时AI =====`);
+  console.log(`👤 玩家: ${player.name}`);
+  console.log(`🤖 是否AI: ${!player.isHuman}`);
+  console.log(`🔑 API配置: ${!!apiKey}, ${!!baseUrl}, ${!!model}`);
+
+  if (!apiKey || !baseUrl || !model) {
+    console.warn(`⚠️ ${player.name} API配置不完整，跳过实时AI初始化`);
+    return;
+  }
+
+  if (player.isHuman) {
+    console.log(`👤 ${player.name} 是真人玩家，跳过实时AI初始化`);
+    return;
+  }
+
+  try {
+    const realtimeAI = RealtimeAISystem.getInstance(player.id, player.name);
+    console.log(`🎯 获取 ${player.name} 的实时AI实例`);
+
+    realtimeAI.configureAPI(apiKey, baseUrl, model);
+    console.log(`🔧 ${player.name} API配置完成`);
+
+    // 玩家坐下时触发
+    const playerPosition = gameState.players.findIndex(p => p.id === player.id);
+    console.log(`📍 ${player.name} 位置: ${playerPosition}`);
+
+    await realtimeAI.onPlayerSitDown(gameState, playerPosition);
+    console.log(`✅ ${player.name} 实时AI初始化完成`);
+  } catch (error) {
+    console.error(`❌ ${player.name} 实时AI初始化失败:`, error);
+    throw error;
+  }
+}
+
+export async function notifyRealtimeAI_CardsDealt(
+  player: Player,
+  holeCards: Card[],
+  gameState: GameState
+): Promise<void> {
+  if (player.isHuman) return;
+
+  const realtimeAI = RealtimeAISystem.getInstance(player.id, player.name);
+  await realtimeAI.onCardsDealt(holeCards, gameState);
+}
+
+export async function notifyRealtimeAI_ActionUpdate(
+  action: string,
+  amount: number,
+  playerId: string,
+  gameState: GameState,
+  apiKey?: string,
+  baseUrl?: string,
+  model?: string
+): Promise<void> {
+  if (!apiKey || !baseUrl || !model) return;
+
+  // 通知所有其他AI玩家
+  for (const player of gameState.players) {
+    if (!player.isHuman && player.id !== playerId) {
+      const realtimeAI = RealtimeAISystem.getInstance(player.id, player.name);
+      await realtimeAI.onActionUpdate(action, amount, playerId, gameState);
+    }
+  }
+}
+
+export function resetRealtimeAI(player: Player): void {
+  if (player.isHuman) return;
+
+  const realtimeAI = RealtimeAISystem.getInstance(player.id, player.name);
+  realtimeAI.reset();
+}
+
+// 🚀 快速AI决策函数 - 内置优化版
+async function makeFastAIDecision(
+  player: Player,
+  gameState: GameState,
+  communityCards: Card[],
+  conversationHistory: Message[],
+  apiKey: string,
+  baseUrl: string,
+  model: string
+): Promise<{ action: string; amount?: number }> {
+
+  const startTime = Date.now();
+  const cache = SimpleAICache.getInstance();
+
+  console.log(`
+🚀 ===== 快速AI决策开始 =====
+👤 玩家: ${player.name}
+🎯 策略: 智能缓存 + 压缩上下文
+⏰ 开始时间: ${new Date().toLocaleTimeString()}
+============================`);
+
+  // 检查缓存的上下文
+  const cachedContext = cache.getGameContext(gameState, player.id);
+  const playerProfile = cache.getPlayerProfile(player.id);
+
+  // 构建优化的对话历史
+  const optimizedHistory = buildOptimizedHistory(
+    player,
+    gameState,
+    communityCards,
+    conversationHistory,
+    cachedContext,
+    playerProfile
+  );
+
+  console.log(`
+📊 ===== 优化统计 =====
+📝 原始对话长度: ${conversationHistory.length}
+🎯 优化后长度: ${optimizedHistory.length}
+💾 缓存命中: ${cachedContext ? '是' : '否'}
+🧠 玩家档案: ${playerProfile ? '已加载' : '新建'}
+⚡ 预处理时间: ${Date.now() - startTime}ms
+============================`);
+
+  // 发送优化的API请求
+  const requestPayload = {
+    model: model,
+    messages: optimizedHistory,
+    response_format: { type: 'json_object' },
+    temperature: 0.3, // 降低温度以获得更一致的响应
+    max_tokens: 150   // 限制token数量以加快响应
+  };
+
+  console.log(`🌐 发送优化API请求 - 消息数: ${optimizedHistory.length}, max_tokens: 150`);
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestPayload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`❌ API请求失败: ${response.status} - ${errorText}`);
+    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json();
+  const decisionText = result.choices[0].message.content;
+
+  console.log(`📥 API响应: ${decisionText}`);
+
+  // 使用增强的JSON解析
+  const decision = parseOptimizedDecisionJSON(decisionText);
+
+  if (!decision) {
+    throw new Error("Failed to parse decision from AI response");
+  }
+
+  // 更新缓存
+  cache.updatePlayerProfile(player.id, decision.action, decision.amount || 0, gameState.phase);
+  cache.cacheGameContext(gameState, player.id, { lastDecision: decision, timestamp: Date.now() });
+
+  const totalTime = Date.now() - startTime;
+  console.log(`
+✅ ===== 快速决策完成 =====
+👤 玩家: ${player.name}
+🎯 决策: ${decision.action}${decision.amount ? ` (${decision.amount})` : ''}
+⏱️ 总耗时: ${totalTime}ms
+💾 缓存更新: 完成
+============================`);
+
+  return decision;
+}
+
+// 🎯 构建优化的对话历史
+function buildOptimizedHistory(
+  player: Player,
+  gameState: GameState,
+  communityCards: Card[],
+  originalHistory: Message[],
+  cachedContext: any,
+  playerProfile: any
+): Message[] {
+
+  // 保留系统提示
+  const systemMessage = originalHistory.find(msg => msg.role === 'system');
+
+  // 如果有缓存上下文且历史较长，使用增量模式
+  if (cachedContext && originalHistory.length > 3) {
+    console.log(`🎯 使用增量更新模式`);
+
+    const optimizedHistory: Message[] = [];
+
+    if (systemMessage) {
+      optimizedHistory.push(systemMessage);
+    }
+
+    // 添加压缩的历史摘要
+    optimizedHistory.push({
+      role: 'assistant',
+      content: '已加载之前的牌局上下文和玩家行为分析。'
+    });
+
+    // 添加最新的增量信息
+    optimizedHistory.push({
+      role: 'user',
+      content: buildIncrementalPrompt(player, gameState, communityCards, playerProfile)
+    });
+
+    return optimizedHistory;
+  }
+
+  // 否则使用压缩的完整上下文
+  console.log(`🎯 使用压缩完整上下文模式`);
+
+  const optimizedHistory: Message[] = [];
+
+  if (systemMessage) {
+    optimizedHistory.push(systemMessage);
+  }
+
+  optimizedHistory.push({
+    role: 'user',
+    content: buildCompressedGamePrompt(player, gameState, communityCards, playerProfile)
+  });
+
+  return optimizedHistory;
+}
+
+// 🎯 构建增量提示
+function buildIncrementalPrompt(
+  player: Player,
+  gameState: GameState,
+  communityCards: Card[],
+  playerProfile: any
+): string {
+
+  return `**最新局面更新:**
+- **当前阶段:** ${gameState.phase}
+- **你的位置:** ${gameState.activePlayerIndex}
+- **公共牌:** [${communityCards.map(c => `${c.rank}${c.suit}`).join(', ')}]
+- **你的手牌:** [${player.holeCards?.map(c => `${c.rank}${c.suit}`).join(', ') || ''}]
+- **底池:** ${gameState.pot}
+- **你的筹码:** ${player.chips}
+- **当前下注:** ${gameState.currentBet}
+
+${playerProfile ? `**你的最近表现:** 最近${playerProfile.actions.length}个行动已分析` : ''}
+
+轮到你行动。基于之前的分析，请快速做出GTO决策。
+
+⚡ 返回格式：{"action": "你的行动", "amount": 金额, "reasoning": "简短理由"}`;
+}
+
+// 🎯 构建压缩游戏提示
+function buildCompressedGamePrompt(
+  player: Player,
+  gameState: GameState,
+  communityCards: Card[],
+  playerProfile: any
+): string {
+
+  return `**快速决策请求:**
+你是${player.name}，世界级德州扑克AI。
+
+**当前局面:**
+- 阶段: ${gameState.phase} | 底池: ${gameState.pot} | 你的筹码: ${player.chips}
+- 公共牌: [${communityCards.map(c => `${c.rank}${c.suit}`).join(', ')}]
+- 你的手牌: [${player.holeCards?.map(c => `${c.rank}${c.suit}`).join(', ') || ''}]
+- 当前下注: ${gameState.currentBet} | 你的位置: ${gameState.activePlayerIndex}
+
+**要求:** 基于GTO策略快速决策，考虑底池赔率和位置优势。
+
+⚡ 返回格式：{"action": "fold/check/call/raise/all-in", "amount": 数字, "reasoning": "理由"}`;
+}
+
+// 🔧 增强的JSON解析 - 支持混合内容
+function parseOptimizedDecisionJSON(text: string): { action: string; amount?: number } | null {
+  console.log(`🔧 ===== 增强JSON解析开始 =====`);
+  console.log(`📝 原始文本:`, text);
+
+  try {
+    // 方法1: 寻找最后一个完整的JSON对象（通常是决策）
+    const jsonMatches = text.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+    if (jsonMatches && jsonMatches.length > 0) {
+      // 取最后一个JSON对象（通常是决策）
+      const lastJson = jsonMatches[jsonMatches.length - 1];
+      console.log(`🎯 找到JSON对象: ${lastJson}`);
+
+      try {
+        const decision = JSON.parse(lastJson);
+        if (decision.action && ['fold', 'check', 'call', 'raise', 'all-in', 'bet'].includes(decision.action)) {
+          // 将bet映射为raise
+          if (decision.action === 'bet') {
+            decision.action = 'raise';
+          }
+          console.log(`✅ JSON解析成功:`, decision);
+          return {
+            action: decision.action,
+            amount: decision.amount || 0
+          };
+        }
+      } catch (e) {
+        console.log(`❌ JSON对象解析失败: ${e.message}`);
+      }
+    }
+
+    // 方法2: 寻找包含action字段的JSON
+    const actionJsonPattern = /\{[^{}]*"action"[^{}]*\}/g;
+    const actionMatches = Array.from(text.matchAll(actionJsonPattern));
+
+    for (const match of actionMatches) {
+      try {
+        let jsonStr = match[0];
+
+        // 修复常见JSON问题
+        jsonStr = jsonStr
+          .replace(/'/g, '"')
+          .replace(/(\w+):/g, '"$1":')
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']')
+          .replace(/"\s*(\d+)\s*"/g, '$1'); // 修复数字被引号包围的问题
+
+        console.log(`🔧 修复后的JSON: ${jsonStr}`);
+
+        const decision = JSON.parse(jsonStr);
+        if (decision.action && ['fold', 'check', 'call', 'raise', 'all-in', 'bet'].includes(decision.action)) {
+          if (decision.action === 'bet') {
+            decision.action = 'raise';
+          }
+          console.log(`✅ Action JSON解析成功:`, decision);
+          return {
+            action: decision.action,
+            amount: decision.amount || 0
+          };
+        }
+      } catch (e) {
+        console.log(`❌ Action JSON解析失败: ${e.message}`);
+      }
+    }
+
+    // 方法3: 更宽松的JSON提取
+    const flexibleJsonPattern = /\{[\s\S]*?\}/g;
+    const flexibleMatches = Array.from(text.matchAll(flexibleJsonPattern));
+
+    for (const match of flexibleMatches) {
+      try {
+        let jsonStr = match[0];
+
+        // 更激进的修复
+        jsonStr = jsonStr
+          .replace(/[\r\n\t]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .replace(/'/g, '"')
+          .replace(/(\w+)\s*:/g, '"$1":')
+          .replace(/:\s*([^",\{\}\[\]]+)(?=\s*[,\}])/g, ':"$1"')
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']');
+
+        console.log(`🔧 激进修复后的JSON: ${jsonStr}`);
+
+        const decision = JSON.parse(jsonStr);
+        if (decision.action && ['fold', 'check', 'call', 'raise', 'all-in', 'bet'].includes(decision.action)) {
+          if (decision.action === 'bet') {
+            decision.action = 'raise';
+          }
+          console.log(`✅ 宽松JSON解析成功:`, decision);
+          return {
+            action: decision.action,
+            amount: decision.amount || 0
+          };
+        }
+      } catch (e) {
+        console.log(`❌ 宽松JSON解析失败: ${e.message}`);
+      }
+    }
+
+    console.warn(`⚠️ 所有JSON解析方法都失败了`);
+    return null;
+  } catch (error) {
+    console.error(`❌ JSON解析完全失败:`, error);
+    return null;
+  }
+}
+
 // 🔥 修复：构建增强的手牌历史字符串 - 包含位置信息
 function buildHandHistoryString(gameState: GameState): string {
   const actionsByPhase: { [phase: string]: ActionHistoryItem[] } = {
@@ -813,7 +1294,7 @@ function buildHandHistoryString(gameState: GameState): string {
   return historyString || '新手牌开始，暂无行动历史。';
 }
 
-// 🔥 V1.5混合会话：Goliath GTO AI决策函数 - 传入AI身份信息
+// 🔥 V3.0 实时AI决策函数 - 流式分析 + 即时响应
 export async function makeAIDecision(
   player: Player,
   gameState: GameState,
@@ -823,9 +1304,40 @@ export async function makeAIDecision(
   baseUrl?: string,
   model?: string,
 ): Promise<{ action: string; amount?: number }> {
-  
+
   console.log(`
-🎯 ${player.name} [Goliath V1.5 混合会话] 开始决策分析`);
+🚀 ${player.name} [V3.0 实时决策] 开始分析`);
+
+  // 🚀 优先使用实时AI系统
+  if (apiKey && baseUrl && model) {
+    try {
+      const realtimeAI = RealtimeAISystem.getInstance(player.id, player.name);
+
+      // 确保API已配置
+      realtimeAI.configureAPI(apiKey, baseUrl, model);
+
+      console.log(`⚡ 使用实时AI系统 - 基于持续分析做出决策`);
+      return await realtimeAI.makeInstantDecision(gameState, communityCards);
+    } catch (error) {
+      console.warn(`⚠️ 实时AI失败，回退到快速决策:`, error);
+      // 回退到快速决策
+      try {
+        return await makeFastAIDecision(
+          player,
+          gameState,
+          communityCards,
+          conversationHistory,
+          apiKey,
+          baseUrl,
+          model
+        );
+      } catch (fastError) {
+        console.warn(`⚠️ 快速决策也失败，使用标准流程:`, fastError);
+      }
+    }
+  }
+
+  console.log(`🎯 ${player.name} [标准流程] 开始决策分析`);
   
   if (!apiKey || !baseUrl || !model) {
     console.log(`${player.name}: AI配置不完整，使用GTO备用决策`);
@@ -844,31 +1356,66 @@ export async function makeAIDecision(
   }
 
   try {
+    // 🌐 API请求详细日志
+    const requestPayload = {
+      model: model,
+      messages: conversationHistory,
+      response_format: { type: 'json_object' }
+    };
+
+    console.log(`
+🌐 ===== API请求发送 =====
+👤 玩家: ${player.name}
+🔗 URL: ${baseUrl}/chat/completions
+📝 请求体:`, requestPayload);
+    console.log(`📨 对话历史 (${conversationHistory.length} 条消息):`, conversationHistory);
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: conversationHistory,
-        response_format: { type: 'json_object' }
-      })
+      body: JSON.stringify(requestPayload)
     });
 
     if (!response.ok) {
-      throw new Error(`API request failed with status ${response.status}`);
+      const errorText = await response.text();
+      console.error(`
+❌ ===== API请求失败 =====
+👤 玩家: ${player.name}
+🚨 状态码: ${response.status}
+📝 错误信息: ${errorText}
+⏰ 失败时间: ${new Date().toLocaleTimeString()}
+============================`);
+      throw new Error(`API request failed with status ${response.status}: ${errorText}`);
     }
 
     const result = await response.json();
+
+    // 📥 API响应详细日志
+    console.log(`
+📥 ===== API响应接收 =====
+👤 玩家: ${player.name}
+✅ 状态: 成功
+📊 完整响应:`, result);
+
     const decisionText = result.choices[0].message.content;
+    console.log(`🎯 AI原始决策文本: ${decisionText}`);
+
     const decision = extractDecisionFromText(decisionText, gameState, player);
 
+    console.log(`
+🎲 ===== 决策解析结果 =====
+👤 玩家: ${player.name}
+🎯 解析后决策:`, decision);
+
     if (!decision) {
+        console.error(`❌ 决策解析失败 - 玩家: ${player.name}, 原始文本: ${decisionText}`);
         throw new Error("Failed to extract decision from AI response");
     }
 
+    console.log(`✅ ${player.name} 决策解析成功: ${decision.action}${decision.amount ? ` (${decision.amount})` : ''}`);
     return decision;
 
   } catch (error) {
