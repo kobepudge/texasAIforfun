@@ -78,9 +78,8 @@ class GTOService {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-          },
-          // 增加到10秒超时
-          signal: AbortSignal.timeout(10000)
+          }
+          // 移除超时限制
         });
 
         if (!response.ok) {
@@ -371,9 +370,7 @@ class GTOService {
   // 健康检查
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/health`, {
-        signal: AbortSignal.timeout(3000)
-      });
+      const response = await fetch(`${this.baseUrl}/api/health`);
       return response.ok;
     } catch {
       return false;

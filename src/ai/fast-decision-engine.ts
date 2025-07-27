@@ -81,7 +81,7 @@ export class FastDecisionEngine {
       model: apiConfig.model,
       temperature: 0.1,
       maxTokens: 150,
-      timeout: 60000 // 60秒基础超时，给AI充分思考时间
+      timeout: 0 // 移除超时限制
     };
 
     this.apiPool = new AIAPIPool(poolConfig, 3); // 3个并行连接
@@ -90,7 +90,7 @@ export class FastDecisionEngine {
     this.complexityAnalyzer = new SituationComplexityAnalyzer();
     this.adaptivePromptManager = new AdaptivePromptManager();
 
-    console.log('⚡ 快速决策引擎初始化完成 (含智能复杂度分析)');
+    console.log('⚡ 快速决策引擎初始化完成 (移除超时限制)');
   }
 
   // 🎯 主决策入口
@@ -99,7 +99,7 @@ export class FastDecisionEngine {
     playerId: string,
     holeCards: Card[],
     opponentProfiles: Map<string, OpponentProfile>,
-    timeLimit: number = 30000
+    timeLimit: number = 0 // 移除时间限制
   ): Promise<AIDecision> {
     const startTime = Date.now();
 
@@ -119,6 +119,9 @@ export class FastDecisionEngine {
           console.warn('⚠️ GTO决策失败，回退到AI决策:', gtoError);
         }
       }
+
+      // 🔥 直接使用AI决策系统 (更可靠)
+      console.log('🧠 使用AI决策系统 (GTO服务已禁用)');
 
       // 构建游戏数据
       const gameData = this.buildGameData(gameState, playerId, holeCards, opponentProfiles, timeLimit);
@@ -272,13 +275,8 @@ export class FastDecisionEngine {
       console.log(`🎯 局势复杂度: ${complexityAssessment.category} (${complexityAssessment.totalScore}/100)`);
       console.log(`📊 推荐: 超时${complexityAssessment.recommendedTimeout}ms, 温度${complexityAssessment.recommendedTemperature}, Prompt${complexityAssessment.promptType}`);
 
-      // 🚀 使用动态超时和温度 (临时放宽限制)
-      const maxAllowedTimeout = 50000; // 临时最大50秒超时
-      const dynamicTimeLimit = Math.min(
-        complexityAssessment.recommendedTimeout,
-        gameData.timeLimit - 500,
-        maxAllowedTimeout
-      );
+      // 🚀 移除超时限制，使用推荐温度
+      const dynamicTimeLimit = 0; // 完全移除超时限制
 
       // 📝 生成自适应Prompt
       const adaptivePrompt = this.adaptivePromptManager.generatePrompt(
@@ -290,7 +288,7 @@ export class FastDecisionEngine {
         complexityAssessment.recommendedTemperature
       );
 
-      console.log(`🧠 发起智能AI决策请求 (时限: ${dynamicTimeLimit}ms, 温度: ${complexityAssessment.recommendedTemperature})`);
+      console.log(`🧠 发起智能AI决策请求 (无时限, 温度: ${complexityAssessment.recommendedTemperature})`);
 
       // 🚀 使用动态配置的API请求
       const decision = await this.apiPool.makeDecisionRequestWithConfig(
@@ -514,13 +512,8 @@ export class FastDecisionEngine {
 
       console.log(`🔍 GTO查询: ${JSON.stringify(gtoQuery)}`);
 
-      // 获取GTO决策 (带超时保护)
-      const gtoDecision = await Promise.race([
-        gtoService.getPreflopDecision(gtoQuery),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('GTO决策超时')), 8000)
-        )
-      ]);
+      // 获取GTO决策 (移除超时限制)
+      const gtoDecision = await gtoService.getPreflopDecision(gtoQuery);
 
       // 转换为AI决策格式
       const aiDecision: AIDecision = {

@@ -119,7 +119,7 @@ export function PokerTable() {
         // 创建AI管理器
         aiManagerRef.current = new AIInstanceManager({
           maxAIPlayers: 8,
-          defaultTimeout: 60000, // 60秒超时，给AI充分思考时间
+          defaultTimeout: 0, // 移除超时限制
           apiConfig,
           enablePerformanceMonitoring: true
         });
@@ -157,6 +157,33 @@ export function PokerTable() {
     // 🚀 新AI系统：无需复杂的初始化，直接开始游戏
     console.log('🎮 新AI架构：快速游戏启动，无需预处理');
 
+    // 🔥 关键修复：记录盲注到行动历史
+    const blindActions: ActionHistoryItem[] = [];
+    const smallBlindPlayer = newPlayers.find(p => p.isSmallBlind);
+    const bigBlindPlayer = newPlayers.find(p => p.isBigBlind);
+
+    if (smallBlindPlayer) {
+      blindActions.push({
+        playerName: smallBlindPlayer.name,
+        action: 'small_blind',
+        amount: gameState.smallBlindAmount,
+        phase: 'preflop',
+        timestamp: Date.now()
+      });
+    }
+
+    if (bigBlindPlayer) {
+      blindActions.push({
+        playerName: bigBlindPlayer.name,
+        action: 'big_blind',
+        amount: gameState.bigBlindAmount,
+        phase: 'preflop',
+        timestamp: Date.now()
+      });
+    }
+
+    console.log('🔍 初始化盲注行动历史:', blindActions);
+
     setGameState(prev => ({
       ...prev,
       dealerIndex: dealerIndex,
@@ -169,7 +196,7 @@ export function PokerTable() {
       activePlayerIndex: nextPlayerIndex,
       lastRaiserIndex: newPlayers.findIndex(p => p.isBigBlind),
       bettingRoundStartIndex: nextPlayerIndex,
-      actionHistory: []
+      actionHistory: blindActions // 🔥 关键修复：从盲注开始记录行动历史
     }));
 
     setDeck(newDeck);
@@ -328,6 +355,15 @@ export function PokerTable() {
 
     const newActionHistory = addActionToHistory(gameState, player.name, action, amount);
 
+    // 🔍 关键调试：检查行动历史更新
+    console.log(`🔍 行动历史更新:`, {
+      原始长度: gameState.actionHistory?.length || 0,
+      新长度: newActionHistory.length,
+      原始历史: gameState.actionHistory,
+      新增行动: newActionHistory[newActionHistory.length - 1],
+      完整新历史: newActionHistory
+    });
+
     // 检查单人获胜
     const singleWinner = checkForSinglePlayerWin(newPlayers);
     if (singleWinner) {
@@ -389,15 +425,27 @@ ${player.isFolded ? '❌ 已弃牌' : ''}
 ${player.isAllIn ? '🔥 全押' : ''}
 ============================`);
 
-    setGameState(prev => ({
-      ...prev,
-      players: newPlayers,
-      pot: newPot,
-      currentBet: newCurrentBet,
-      activePlayerIndex: nextPlayerIndex,
-      lastRaiserIndex: newLastRaiserIndex,
-      actionHistory: newActionHistory
-    }));
+    setGameState(prev => {
+      const newState = {
+        ...prev,
+        players: newPlayers,
+        pot: newPot,
+        currentBet: newCurrentBet,
+        activePlayerIndex: nextPlayerIndex,
+        lastRaiserIndex: newLastRaiserIndex,
+        actionHistory: newActionHistory
+      };
+
+      // 🔍 验证状态更新
+      console.log(`✅ 游戏状态已更新:`, {
+        行动历史长度: newState.actionHistory.length,
+        最新行动: newState.actionHistory[newState.actionHistory.length - 1],
+        阶段: newState.phase,
+        下一位玩家: newState.players[newState.activePlayerIndex]?.name
+      });
+
+      return newState;
+    });
   }, [gameState, checkForSinglePlayerWin, setGameState, setWinners, setShowdown]);
 
   // 转换游戏阶段
@@ -572,7 +620,8 @@ ${player.isAllIn ? '🔥 全押' : ''}
         currentBet: 0,
         activePlayerIndex: bettingStartIndex,
         bettingRoundStartIndex: bettingStartIndex,
-        lastRaiserIndex: -1
+        lastRaiserIndex: -1,
+        actionHistory: prev.actionHistory // 🔥 关键修复：保留行动历史
       };
     });
   }, [deck, distributePot, setGameState, setWinners, setShowdown, setDeck]);
@@ -681,6 +730,16 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
           throw new Error('新AI系统未初始化');
         }
 
+        // 🔍 AI行动前的详细状态检查
+        console.log(`🔍 AI行动前状态检查:`, {
+          当前阶段: gameState.phase,
+          行动历史长度: gameState.actionHistory?.length || 0,
+          行动历史内容: gameState.actionHistory || [],
+          当前玩家: gameState.players[gameState.activePlayerIndex]?.name,
+          底池: gameState.pot,
+          当前下注: gameState.currentBet
+        });
+
         // 转换游戏状态格式为NewGameState
         const newGameState = {
           gameId: `game_${Date.now()}`,
@@ -707,7 +766,7 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
           smallBlind: gameState.smallBlindAmount || 50,
           bigBlind: gameState.bigBlindAmount || 100,
           actionHistory: gameState.actionHistory || [],
-          currentRoundActions: gameState.actionHistory || [], // 使用actionHistory作为当前轮次行动
+          currentRoundActions: (gameState.actionHistory || []).filter(a => a.phase === gameState.phase), // 只包含当前阶段的行动
           roundStartTime: Date.now(),
           actionStartTime: Date.now(),
           isGameActive: true
@@ -719,7 +778,18 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
           originalPhase: gameState.phase,
           currentBet: newGameState.currentBet,
           pot: newGameState.pot,
-          activePlayer: newGameState.players[newGameState.activePlayerIndex]?.name
+          activePlayer: newGameState.players[newGameState.activePlayerIndex]?.name,
+          actionHistoryLength: gameState.actionHistory?.length || 0,
+          actionHistoryPreview: gameState.actionHistory?.slice(-3) || []
+        });
+
+        // 🔍 详细调试行动历史
+        console.log('📊 行动历史详情:', {
+          totalActions: gameState.actionHistory?.length || 0,
+          allActions: gameState.actionHistory || [],
+          currentPhaseActions: gameState.actionHistory?.filter(a => a.phase === gameState.phase) || [],
+          传递给AI的行动历史: newGameState.actionHistory,
+          传递给AI的当前轮次行动: newGameState.currentRoundActions
         });
 
         const startTime = Date.now();

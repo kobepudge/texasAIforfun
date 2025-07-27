@@ -206,26 +206,14 @@ export class AIPlayer {
   // 🎲 做出决策
   private async makeDecision(): Promise<AIDecision> {
     const startTime = Date.now();
-    
-    // 设置超时
-    const timeoutPromise = new Promise<AIDecision>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error('决策超时'));
-      }, this.config.decisionTimeoutMs);
-    });
 
-    // 实际决策逻辑
-    const decisionPromise = this.performDecisionAnalysis();
-    
-    // 竞速：决策 vs 超时
-    this.currentDecisionPromise = Promise.race([decisionPromise, timeoutPromise]);
-    
-    const decision = await this.currentDecisionPromise;
+    // 直接执行决策逻辑，不设置超时限制
+    const decision = await this.performDecisionAnalysis();
     decision.decisionTime = Date.now() - startTime;
-    
+
     // 记录决策历史
     this.decisionHistory.push(decision);
-    
+
     return decision;
   }
 

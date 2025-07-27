@@ -160,8 +160,14 @@ export class AIAPIPool {
 
   // 🌐 发起带配置的API请求
   private async makeAPIRequestWithConfig(connection: APIConnection, prompt: string, timeLimit: number, temperature: number): Promise<string> {
+    // 移除超时控制
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeLimit);
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    // 只有在timeLimit > 0时才设置超时
+    if (timeLimit > 0) {
+      timeoutId = setTimeout(() => controller.abort(), timeLimit);
+    }
 
     try {
       const response = await fetch(`${connection.config.baseUrl}/v1/chat/completions`, {
@@ -189,7 +195,9 @@ export class AIAPIPool {
         signal: controller.signal
       });
 
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
@@ -204,10 +212,12 @@ export class AIAPIPool {
       return data.choices[0].message.content;
 
     } catch (error) {
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       if (error.name === 'AbortError') {
-        throw new Error(`API请求超时 (${timeLimit}ms)`);
+        throw new Error(`API请求被中止`);
       }
 
       throw error;

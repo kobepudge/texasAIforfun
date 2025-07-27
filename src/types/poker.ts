@@ -78,6 +78,7 @@ export interface ActionHistoryItem {
   action: string;
   amount?: number;
   phase: GamePhase;
+  timestamp: number;
 }
 
 export interface AIPersonality {
