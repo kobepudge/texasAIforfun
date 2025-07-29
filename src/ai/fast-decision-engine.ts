@@ -4,6 +4,9 @@ import { AdaptivePromptManager } from './adaptive-prompt-manager.ts';
 import { AIAPIPool } from './ai-api-pool.ts';
 import { AIDecision, OpponentProfile } from './ai-player.ts';
 import { SituationComplexityAnalyzer } from './situation-complexity-analyzer.ts';
+import { PokerContextCacheManager, CachedPromptRequest } from './poker-context-cache-manager.ts';
+import { RealPokerMathEngine } from './real-poker-math.ts';
+import { ConversationManager } from './conversation-manager.ts';
 
 // 🎯 游戏数据结构
 export interface GameData {
@@ -65,7 +68,7 @@ export interface CachedDecision {
   confidence: number;
 }
 
-// ⚡ 快速决策引擎
+// ⚡ 快速决策引擎 - 升级版：Context Caching + 对话状态管理
 export class FastDecisionEngine {
   private decisionCache: Map<string, CachedDecision> = new Map();
   private apiPool: AIAPIPool;
@@ -73,6 +76,14 @@ export class FastDecisionEngine {
   private performanceTracker: PerformanceTracker;
   private complexityAnalyzer: SituationComplexityAnalyzer;
   private adaptivePromptManager: AdaptivePromptManager;
+  
+  // 🔥 新增：Context Caching + 真实计算 + 对话管理
+  private contextCacheManager: PokerContextCacheManager;
+  private pokerMath: RealPokerMathEngine;
+  private conversationManager: ConversationManager;
+  
+  // 🎯 玩家对话状态映射
+  private playerConversations: Map<string, string> = new Map(); // playerId -> conversationId
 
   constructor(apiConfig: any) {
     const poolConfig = {
@@ -89,11 +100,118 @@ export class FastDecisionEngine {
     this.performanceTracker = new PerformanceTracker();
     this.complexityAnalyzer = new SituationComplexityAnalyzer();
     this.adaptivePromptManager = new AdaptivePromptManager();
+    
+    // 🔥 新增：Context Caching + 真实计算 + 对话管理引擎
+    this.contextCacheManager = new PokerContextCacheManager();
+    this.pokerMath = new RealPokerMathEngine();
+    this.conversationManager = new ConversationManager(poolConfig);
 
-    console.log('⚡ 快速决策引擎初始化完成 (移除超时限制)');
+    console.log('⚡ 快速决策引擎V3.0初始化完成 (Context Caching + 对话状态管理)');
   }
 
-  // 🎯 主决策入口
+  // 🔥 AI玩家预热 - 建立Context Caching对话状态
+  async warmupAIPlayer(playerId: string, playerName: string): Promise<void> {
+    try {
+      console.log(`🔥 开始预热AI玩家: ${playerName} (${playerId})`);
+      
+      const conversationId = await this.conversationManager.initializePlayerConversation(playerId, playerName);
+      this.playerConversations.set(playerId, conversationId);
+      
+      console.log(`✅ AI玩家${playerName}预热完成，对话ID: ${conversationId}`);
+      
+    } catch (error) {
+      console.error(`❌ AI玩家${playerName}预热失败:`, error);
+      throw error;
+    }
+  }
+
+  // 🎯 并发预热多个AI玩家
+  async warmupMultipleAIPlayers(players: Array<{id: string, name: string}>): Promise<void> {
+    console.log(`🚀 开始并发预热${players.length}个AI玩家...`);
+    
+    const warmupPromises = players.map(player => 
+      this.warmupAIPlayer(player.id, player.name)
+    );
+    
+    try {
+      await Promise.all(warmupPromises);
+      console.log(`✅ 所有${players.length}个AI玩家预热完成`);
+      
+      // 输出统计信息
+      const stats = this.conversationManager.getStatistics();
+      console.log(`📊 对话状态统计:`, stats);
+      
+    } catch (error) {
+      console.error('❌ 批量AI预热失败:', error);
+      throw error;
+    }
+  }
+
+  // 🚀 新的Ultra-Fast决策入口 - Context Caching优化
+  async makeUltraFastDecision(
+    gameState: NewGameState,
+    playerId: string,
+    holeCards: Card[],
+    opponentProfiles: Map<string, OpponentProfile>,
+    timeLimit: number = 0
+  ): Promise<AIDecision> {
+    const startTime = Date.now();
+
+    try {
+      console.log('🚀 启动Ultra-Fast智能决策引擎');
+
+      // 🚀 翻前优先使用GTO查表 (0-5ms极速决策)
+      if (gameState.phase === 'preflop') {
+        console.log('⚡ 翻前阶段，优先使用GTO查表决策');
+
+        try {
+          const gtoDecision = await this.getGTOPreflopDecision(gameState, playerId, holeCards);
+          if (gtoDecision) {
+            const totalTime = Date.now() - startTime;
+            console.log(`⚡ GTO翻前决策完成: ${gtoDecision.action} (${totalTime}ms)`);
+            return gtoDecision;
+          }
+        } catch (gtoError) {
+          console.warn('⚠️ GTO决策失败，回退到Context Caching:', gtoError);
+        }
+      }
+
+      // 🔥 翻后或GTO失败：使用对话状态的Context Caching
+      console.log('🧠 使用对话状态Context Caching专业决策系统');
+      
+      // Step 1: 获取玩家的对话ID
+      const conversationId = this.playerConversations.get(playerId);
+      if (!conversationId) {
+        console.warn(`⚠️ 玩家${playerId}没有预热对话，回退到传统方式`);
+        return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+      }
+      
+      // Step 2: 构建游戏数据并进行真实计算
+      const gameData = this.buildEnhancedGameData(gameState, playerId, holeCards, opponentProfiles);
+      
+      console.log(`🎯 使用预热对话 ${conversationId} 进行决策 (享受Context Caching加速)`);
+
+      // Step 3: 在对话中进行决策（利用缓存）
+      const aiResponse = await this.conversationManager.makeDecisionInConversation(conversationId, gameData);
+      
+      // Step 4: 解析AI响应
+      const decision = this.parseConversationResponse(aiResponse);
+      
+      // 记录性能
+      const totalTime = Date.now() - startTime;
+      this.performanceTracker.recordDecision(playerId, totalTime, decision.confidence);
+      
+      console.log(`⚡ 对话Context Caching决策完成: ${decision.action} (${totalTime}ms)`);
+      
+      return decision;
+
+    } catch (error) {
+      console.error('❌ Ultra-Fast决策失败，回退到传统方式:', error);
+      return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+    }
+  }
+
+  // 🎯 原有决策入口（保持兼容性）
   async makeDecision(
     gameState: NewGameState,
     playerId: string,
@@ -120,8 +238,8 @@ export class FastDecisionEngine {
         }
       }
 
-      // 🔥 直接使用AI决策系统 (更可靠)
-      console.log('🧠 使用AI决策系统 (GTO服务已禁用)');
+      // 🔥 GTO失败后使用AI决策系统 (备用方案)
+      console.log('🧠 使用AI决策系统 (GTO查表失败后的备用方案)');
 
       // 构建游戏数据
       const gameData = this.buildGameData(gameState, playerId, holeCards, opponentProfiles, timeLimit);
@@ -460,71 +578,70 @@ export class FastDecisionEngine {
     return `${handStrength}_${positionGroup}_${actionType}_${potOddsGroup}_${gameData.phase}`;
   }
 
-  // 🚀 GTO翻前决策
+  // 🚀 GTO翻前决策 - 直接HTTP调用
   private async getGTOPreflopDecision(
     gameState: NewGameState,
     playerId: string,
     holeCards: Card[]
   ): Promise<AIDecision | null> {
     try {
-      // 动态导入GTO服务 (避免循环依赖)
-      const { gtoService } = await import('../services/gto-service.ts');
-
       // 找到当前玩家
       const currentPlayer = gameState.players.find(p => p.id === playerId);
       if (!currentPlayer) {
-        throw new Error('找不到当前玩家');
+        console.warn('⚠️ 找不到当前玩家，跳过GTO决策');
+        return null;
       }
 
       // 格式化手牌
-      const hand = gtoService.formatHoleCards(holeCards);
+      const hand = this.formatHoleCards(holeCards);
       if (hand === 'XX') {
-        throw new Error('无效手牌');
+        console.warn('⚠️ 无效手牌，跳过GTO决策');
+        return null;
       }
 
       // 格式化位置
-      const position = gtoService.formatPosition(
+      const position = this.formatPosition(
         currentPlayer.position,
         gameState.players.length,
         gameState.dealerIndex
       );
 
       // 计算筹码深度
-      const stackBB = gtoService.calculateStackDepth(
-        currentPlayer.chips,
-        gameState.bigBlind || 100
-      );
+      const stackBB = Math.round(currentPlayer.chips / (gameState.bigBlind || 100));
 
-      // 分析面对的行动
-      const facingAction = gtoService.analyzeFacingAction(gameState, playerId);
+      // 🔥 修复：使用真实的行动分析替代硬编码
+      const facingAction = await this.analyzeFacingAction(gameState, playerId);
 
       // 计算后面的玩家数量
-      const playersBehind = gtoService.calculatePlayersBehind(gameState, playerId);
+      const playersBehind = this.calculatePlayersBehind(gameState, playerId);
 
-      // 构建GTO查询
-      const gtoQuery = {
-        hand,
-        position,
-        facing_action: facingAction,
-        players_behind: playersBehind,
-        stack_bb: stackBB
-      };
+      // 直接调用GTO API
+      const url = `http://localhost:3001/api/preflop-decision?hand=${hand}&position=${position}&facing_action=${facingAction}&players_behind=${playersBehind}&stack_bb=${stackBB}`;
+      
+      console.log(`🔍 GTO查询: ${url}`);
 
-      console.log(`🔍 GTO查询: ${JSON.stringify(gtoQuery)}`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`GTO API错误: ${response.status}`);
+      }
 
-      // 获取GTO决策 (移除超时限制)
-      const gtoDecision = await gtoService.getPreflopDecision(gtoQuery);
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(`GTO决策失败: ${data.error}`);
+      }
+
+      const gtoDecision = data.decision;
 
       // 转换为AI决策格式
       const aiDecision: AIDecision = {
-        action: gtoDecision.action as any,
+        action: gtoDecision.action === 'all_in' ? 'all-in' : gtoDecision.action,
         amount: this.calculateGTOAmount(gtoDecision, gameState),
         confidence: gtoDecision.frequency,
         reasoning: `GTO翻前策略: ${gtoDecision.reasoning}`,
         decisionTime: 0,
         metadata: {
           handStrength: this.getHandStrengthFromTier(gtoDecision.hand_tier),
-          positionFactor: currentPlayer.position,
+          positionFactor: position,
           opponentAdjustment: 'gto',
           playType: 'gto_preflop',
           gtoData: gtoDecision
@@ -573,6 +690,294 @@ export class FastDecisionEngine {
     };
 
     return tierMap[tier] || 0.5;
+  }
+
+  // 🔧 格式化手牌为GTO格式 (从GTO服务复制)
+  private formatHoleCards(holeCards: Array<{rank: string, suit: string}>): string {
+    if (!holeCards || holeCards.length !== 2) {
+      return 'XX';
+    }
+
+    const [card1, card2] = holeCards;
+    const rank1 = card1.rank === '10' ? 'T' : card1.rank;
+    const rank2 = card2.rank === '10' ? 'T' : card2.rank;
+    
+    // 确定是否同花
+    const suited = card1.suit === card2.suit;
+    
+    // 按强度排序 (A > K > Q > J > T > 9 > ... > 2)
+    const rankOrder = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+    const rank1Index = rankOrder.indexOf(rank1);
+    const rank2Index = rankOrder.indexOf(rank2);
+    
+    let hand: string;
+    
+    if (rank1 === rank2) {
+      // 对子
+      hand = `${rank1}${rank2}`;
+    } else if (rank1Index < rank2Index) {
+      // rank1更强
+      hand = `${rank1}${rank2}${suited ? 's' : 'o'}`;
+    } else {
+      // rank2更强
+      hand = `${rank2}${rank1}${suited ? 's' : 'o'}`;
+    }
+    
+    return hand;
+  }
+
+  // 🔧 格式化位置为GTO格式 (从GTO服务复制)
+  private formatPosition(playerIndex: number, totalPlayers: number, dealerIndex: number): string {
+    // 计算相对于庄家的位置
+    const relativePosition = (playerIndex - dealerIndex + totalPlayers) % totalPlayers;
+
+    // 9人桌标准位置顺序：庄家开始顺时针
+    const positions = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'CO'];
+
+    // 根据玩家数量调整位置映射
+    if (totalPlayers <= 6) {
+      const shortPositions = ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'];
+      return shortPositions[relativePosition] || 'UTG';
+    }
+
+    console.log(`🔍 GTO位置格式化: playerIndex=${playerIndex}, dealerIndex=${dealerIndex}, relativePosition=${relativePosition}, 位置=${positions[relativePosition]}`);
+
+    return positions[relativePosition] || 'UTG';
+  }
+
+  // 🔍 分析面对的行动 (从GTO服务移植)
+  private async analyzeFacingAction(gameState: NewGameState, playerId: string): Promise<string> {
+    console.log('🔍 分析行动历史:', {
+      actionHistory: gameState.actionHistory,
+      phase: gameState.phase,
+      currentBet: gameState.currentBet,
+      bigBlind: gameState.bigBlind || 100,
+      playerId
+    });
+
+    // 翻前特殊处理
+    if (gameState.phase === 'preflop') {
+      return this.analyzePreflopAction(gameState, playerId);
+    }
+
+    // 翻后处理
+    if (!gameState.actionHistory || gameState.actionHistory.length === 0) {
+      return 'none';
+    }
+
+    // 查找当前轮次的行动
+    const currentRoundActions = gameState.actionHistory.filter(
+      (action: any) => action.phase === gameState.phase
+    );
+
+    if (currentRoundActions.length === 0) {
+      return 'none';
+    }
+
+    // 分析最后的有效行动（排除弃牌）
+    const validActions = currentRoundActions.filter(
+      (action: any) => action.action !== 'fold'
+    );
+
+    if (validActions.length === 0) {
+      return 'none';
+    }
+
+    const lastAction = validActions[validActions.length - 1];
+
+    if (lastAction.action === 'raise') {
+      const raiseSize = lastAction.amount / (gameState.bigBlind || 100);
+      if (raiseSize <= 2.5) return 'raise_2bb';
+      if (raiseSize <= 3.5) return 'raise_3bb';
+      if (raiseSize <= 4.5) return 'raise_4bb';
+      return '3bet';
+    }
+
+    if (lastAction.action === 'call') {
+      return 'limp';
+    }
+
+    return 'none';
+  }
+
+  // 🔍 翻前行动分析 (从GTO服务移植并修复)
+  private analyzePreflopAction(gameState: NewGameState, playerId: string): string {
+    const bigBlind = gameState.bigBlind || 100;
+    const currentBet = gameState.currentBet || 0;
+
+    console.log('🔍 翻前行动分析:', {
+      currentBet,
+      bigBlind,
+      ratio: currentBet / bigBlind,
+      actionHistory: gameState.actionHistory,
+      playerId
+    });
+
+    // 获取翻前行动序列
+    const preflopActions = gameState.actionHistory?.filter(
+      (action: any) => action.phase === 'preflop'
+    ) || [];
+
+    // 过滤出有效行动（排除弃牌和盲注）
+    const validActions = preflopActions.filter(
+      (action: any) => action.action !== 'fold' && action.action !== 'small_blind' && action.action !== 'big_blind'
+    );
+
+    console.log('🔍 有效翻前行动:', validActions);
+
+    // 🎯 关键修复：如果当前下注大于大盲，说明有人加注
+    if (currentBet > bigBlind) {
+      console.log('🎯 检测到加注，当前下注大于大盲:', currentBet, '>', bigBlind);
+      
+      // 分析加注序列
+      const raiseActions = validActions.filter(action => action.action === 'raise');
+      const raiseRatio = currentBet / bigBlind;
+
+      // 判断加注类型
+      if (raiseActions.length >= 2) {
+        if (raiseActions.length >= 3) {
+          return '4bet';
+        }
+        return '3bet';
+      }
+
+      // 首次加注，根据大小分类
+      if (raiseRatio <= 2.5) {
+        return 'raise_2bb';
+      } else if (raiseRatio <= 3.5) {
+        return 'raise_3bb';
+      } else if (raiseRatio <= 4.5) {
+        return 'raise_4bb';
+      } else {
+        return 'raise_4bb'; // 大于4BB的首次加注
+      }
+    }
+
+    // 如果当前下注等于大盲，检查是否有跛入
+    if (currentBet === bigBlind) {
+      const callActions = validActions.filter(action => action.action === 'call');
+      if (callActions.length > 0) {
+        // 🎯 关键修复：检查当前玩家是否为BB
+        const currentPlayer = gameState.players?.find((p: any) => p.id === playerId);
+        if (currentPlayer) {
+          const position = this.formatPosition(
+            currentPlayer.position,
+            gameState.players.length,
+            gameState.dealerIndex
+          );
+
+          // 如果当前玩家是BB，且只有跛入没有加注，则facing_action为none
+          if (position === 'BB') {
+            console.log('🎯 BB位置面对跛入，可以免费看翻牌，facing_action=none');
+            return 'none';
+          }
+        }
+
+        return 'limp';
+      }
+      return 'none'; // 只有盲注，无人行动
+    }
+
+    // 如果当前下注小于大盲（异常情况），返回none
+    return 'none';
+  }
+
+  // 🔍 计算后面还没行动的玩家数量 (从GTO服务移植)
+  private calculatePlayersBehind(gameState: NewGameState, playerId: string): number {
+    if (!gameState.players || !gameState.actionHistory) {
+      return 0;
+    }
+
+    // 找到当前玩家的位置
+    const currentPlayerIndex = gameState.players.findIndex((p: any) => p.id === playerId);
+    if (currentPlayerIndex === -1) {
+      return 0;
+    }
+
+    // 获取翻前已经行动的玩家ID
+    const preflopActions = gameState.actionHistory.filter(
+      (action: any) => action.phase === 'preflop'
+    );
+    const actedPlayerIds = new Set(preflopActions.map((action: any) => action.playerId));
+
+    // 计算当前玩家后面还没行动的活跃玩家数量
+    let playersBehind = 0;
+    const totalPlayers = gameState.players.length;
+
+    for (let i = 1; i < totalPlayers; i++) {
+      const nextPlayerIndex = (currentPlayerIndex + i) % totalPlayers;
+      const nextPlayer = gameState.players[nextPlayerIndex];
+
+      // 如果玩家还活跃且还没行动，计入
+      if (nextPlayer.isActive && !actedPlayerIds.has(nextPlayer.id)) {
+        playersBehind++;
+      }
+    }
+
+    console.log(`🔍 计算后面玩家: 当前玩家${playerId}, 后面还有${playersBehind}个玩家未行动`);
+
+    return playersBehind;
+  }
+
+  // 🔍 解析对话响应为AI决策
+  private parseConversationResponse(responseText: string): AIDecision {
+    try {
+      // 尝试提取JSON
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('响应中未找到JSON格式');
+      }
+
+      const jsonStr = jsonMatch[0];
+      const parsed = JSON.parse(jsonStr);
+
+      // 验证必需字段
+      if (!parsed.action) {
+        throw new Error('缺少action字段');
+      }
+
+      // 标准化action格式
+      let action = parsed.action.toLowerCase();
+      if (action === 'all-in' || action === 'allin') {
+        action = 'all-in';
+      }
+
+      const decision: AIDecision = {
+        action: action as any,
+        amount: parsed.amount || 0,
+        confidence: parsed.confidence || 0.7,
+        reasoning: parsed.reasoning || '专业分析',
+        decisionTime: 0, // 稍后设置
+        metadata: {
+          handStrength: parsed.hand_strength || 0.5,
+          positionFactor: parsed.position_factor || 'unknown',
+          opponentAdjustment: parsed.opponent_adjustment || 'standard',
+          playType: parsed.play_type || 'balanced',
+          conversationBased: true // 标记为对话决策
+        }
+      };
+
+      return decision;
+
+    } catch (error) {
+      console.error('❌ 解析对话响应失败:', error, '原始响应:', responseText);
+
+      // 返回安全的默认决策
+      return {
+        action: 'fold',
+        amount: 0,
+        confidence: 0.5,
+        reasoning: '解析失败，安全弃牌',
+        decisionTime: 0,
+        metadata: {
+          handStrength: 0,
+          positionFactor: 'unknown',
+          opponentAdjustment: 'conservative',
+          playType: 'emergency_fold',
+          conversationBased: false
+        }
+      };
+    }
   }
 
   // 🚨 紧急决策
@@ -777,6 +1182,105 @@ export class FastDecisionEngine {
     if (odds > 3) return 'good';
     if (odds > 2) return 'fair';
     return 'poor';
+  }
+
+  // 🔥 构建增强游戏数据（使用真实计算）
+  private buildEnhancedGameData(
+    gameState: NewGameState,
+    playerId: string,
+    holeCards: Card[],
+    opponentProfiles: Map<string, OpponentProfile>
+  ): any {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) throw new Error('玩家未找到');
+
+    const holeCardsStr = this.formatCards(holeCards);
+    const position = this.getPlayerPosition(gameState, playerId);
+    const communityCardsStr = gameState.communityCards.length > 0 
+      ? this.formatCards(gameState.communityCards) 
+      : undefined;
+
+    // 🧮 使用真实数学计算引擎
+    const effectiveStack = this.pokerMath.calculateEffectiveStack(gameState, playerId);
+    const potOddsResult = this.pokerMath.calculatePotOdds(gameState.pot, this.getAmountToCall(gameState, playerId));
+    const sprResult = this.pokerMath.calculateSPR(effectiveStack, gameState.pot);
+    const handStrengthResult = this.pokerMath.calculateHandStrength(holeCards, gameState.communityCards);
+
+    // 构建对手档案
+    const profiles = Array.from(opponentProfiles.values())
+      .filter(profile => profile.playerId !== playerId)
+      .map(profile => ({
+        name: profile.playerName,
+        position: this.getPlayerPosition(gameState, profile.playerId),
+        vpip: profile.vpip || 25,
+        pfr: profile.pfr || 18,
+        aggression: profile.aggression || 2.0,
+        tendency: this.classifyPlayerTendency(profile),
+        chips: gameState.players.find(p => p.id === profile.playerId)?.chips || 0
+      }));
+
+    return {
+      holeCards: holeCardsStr,
+      position: position,
+      positionIndex: player.position,
+      myChips: player.chips,
+      pot: gameState.pot,
+      toCall: this.getAmountToCall(gameState, playerId),
+      board: communityCardsStr,
+      phase: gameState.phase,
+      actionSequence: this.buildActionSequence(gameState),
+      opponentProfiles: profiles,
+      
+      // 🔥 真实数学计算结果
+      realCalculations: {
+        effectiveStack: effectiveStack,
+        potOdds: potOddsResult,
+        spr: sprResult,
+        handStrength: handStrengthResult
+      }
+    };
+  }
+
+  // 🚀 使用Context Caching发起API请求
+  private async makeContextCachedAPIRequest(cachedPrompt: CachedPromptRequest): Promise<AIDecision> {
+    try {
+      // 组合完整的prompt：固定专业知识 + 动态游戏数据
+      const fullPrompt = cachedPrompt.cachedContext + '\n\n' + cachedPrompt.dynamicContent;
+      
+      console.log(`🎯 Context Caching请求: 缓存部分${cachedPrompt.metadata.cacheableTokens}tokens, 动态部分${cachedPrompt.metadata.dynamicTokens}tokens`);
+      
+      // 使用更高温度以获得更自然的专业分析（专业知识已固定在缓存中）
+      const decision = await this.apiPool.makeDecisionRequestWithConfig(fullPrompt, 0, 0.3);
+      
+      // 设置决策时间
+      decision.decisionTime = Date.now();
+      
+      return decision;
+      
+    } catch (error) {
+      console.error('❌ Context Caching API请求失败:', error);
+      throw error;
+    }
+  }
+
+  // 🔧 分类玩家倾向
+  private classifyPlayerTendency(profile: OpponentProfile): string {
+    const vpip = profile.vpip || 25;
+    const pfr = profile.pfr || 18;
+    const aggression = profile.aggression || 2.0;
+
+    if (vpip > 28 && pfr > 22 && aggression > 2.5) return 'LAG';
+    if (vpip < 20 && pfr < 15 && aggression < 1.5) return 'TP';
+    if (vpip > 35 && aggression < 1.5) return 'LP';
+    return 'TAG';
+  }
+
+  // 🔧 获取跟注金额
+  private getAmountToCall(gameState: NewGameState, playerId: string): number {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return 0;
+
+    return Math.max(0, gameState.currentBet - (player.currentBet || 0));
   }
 }
 
