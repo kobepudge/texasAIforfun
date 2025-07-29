@@ -8,6 +8,7 @@ import { Card } from './Card.tsx';
 import { GameControls } from './GameControls.tsx';
 
 import { Player as PlayerComponent } from './Player.tsx';
+import { ConversationMonitor, PerformanceIndicator } from './ConversationMonitor.tsx';
 import { ChipManagerDialog, PlayerNotesDialog } from './poker/GameDialogs.tsx';
 import { GameResultDisplay } from './poker/GameResultDisplay.tsx';
 import { GameStatusDisplay } from './poker/GameStatusDisplay.tsx';
@@ -42,6 +43,7 @@ export function PokerTable() {
 
   const [showChipManager, setShowChipManager] = useState(false);
   const [showPlayerNotes, setShowPlayerNotes] = useState(false);
+  const [showConversationMonitor, setShowConversationMonitor] = useState(false);
 
   // 🚀 新AI系统引用 - 动态导入
   const fastDecisionEngineRef = useRef<any | null>(null);
@@ -147,7 +149,44 @@ export function PokerTable() {
 💰 大盲: ${gameState.bigBlindAmount}
 ⏰ 开始时间: ${new Date().toLocaleTimeString()}
 ============================`);
+
+    // 🔥 新增：AI预热功能
+    await warmupAIPlayers();
+    
     await startNewGameWithDealer(gameState.dealerIndex);
+  };
+
+  // 🔥 AI预热函数 - 并发初始化所有AI的Context Caching
+  const warmupAIPlayers = async () => {
+    if (!fastDecisionEngineRef.current) {
+      console.log('⚠️ 快速决策引擎未初始化，跳过AI预热');
+      return;
+    }
+
+    try {
+      console.log('🚀 开始AI玩家预热过程...');
+
+      // 获取所有AI玩家
+      const aiPlayers = gameState.players
+        .filter(player => player.isAI)
+        .map(player => ({ id: player.id, name: player.name }));
+
+      if (aiPlayers.length === 0) {
+        console.log('📝 没有AI玩家需要预热');
+        return;
+      }
+
+      console.log(`🔥 发现${aiPlayers.length}个AI玩家需要预热:`, aiPlayers.map(p => p.name).join(', '));
+
+      // 并发预热所有AI玩家
+      await fastDecisionEngineRef.current.warmupMultipleAIPlayers(aiPlayers);
+
+      console.log('✅ 所有AI玩家预热完成，Context Caching已建立');
+
+    } catch (error) {
+      console.error('❌ AI预热失败:', error);
+      // 即使预热失败也继续游戏（会回退到传统方式）
+    }
   };
 
   // 开始新游戏（指定庄家位置）
@@ -793,7 +832,7 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
         });
 
         const startTime = Date.now();
-        const aiDecision = await fastDecisionEngineRef.current.makeDecision(
+        const aiDecision = await fastDecisionEngineRef.current.makeUltraFastDecision(
           newGameState,
           currentPlayer.id,
           currentPlayer.holeCards || [],
@@ -982,6 +1021,26 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
       {/* 顶级配置层 */}
       <div className="absolute top-4 right-4 z-60">
         <AIConfigComponent config={aiConfig} onConfigUpdate={handleAIConfigUpdate} />
+      </div>
+
+      {/* 🧠 Context Caching 监控层 */}
+      <ConversationMonitor 
+        isVisible={showConversationMonitor}
+        conversationManager={fastDecisionEngineRef.current?.conversationManager}
+      />
+
+      {/* 🎯 性能指示器 */}
+      <div className="absolute top-4 left-4 z-50">
+        <PerformanceIndicator 
+          conversationManager={fastDecisionEngineRef.current?.conversationManager}
+          className="mb-2"
+        />
+        <button
+          onClick={() => setShowConversationMonitor(!showConversationMonitor)}
+          className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded"
+        >
+          {showConversationMonitor ? '隐藏' : '显示'} Context Monitor
+        </button>
       </div>
 
       {/* 对话框层 */}
