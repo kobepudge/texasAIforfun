@@ -242,6 +242,15 @@ export function PokerTable() {
     setGameStarted(true);
     setShowdown(false);
     setWinners([]);
+
+    // 🔥 修复：如果第一个玩家是AI，确保立即触发决策
+    setTimeout(() => {
+      const firstPlayer = newPlayers[nextPlayerIndex];
+      if (firstPlayer && firstPlayer.isAI && !firstPlayer.isFolded && !firstPlayer.isAllIn) {
+        console.log(`🚀 游戏开始后立即检查第一个玩家: ${firstPlayer.name} (AI: ${firstPlayer.isAI})`);
+        console.log('🎯 将在2秒后触发AI决策...');
+      }
+    }, 100); // 100ms延迟，确保状态已更新
   };
 
   // 处理单人获胜
@@ -712,9 +721,15 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
 🔥 是否全押: ${currentPlayer?.isAllIn || false}
 🎯 活跃玩家索引: ${gameState.activePlayerIndex}
 🃏 当前阶段: ${gameState.phase}
+⏰ 当前时间: ${new Date().toLocaleTimeString()}
 ============================`);
 
-    if (!currentPlayer?.isAI || currentPlayer.isFolded || currentPlayer.isAllIn) return;
+    if (!currentPlayer?.isAI || currentPlayer.isFolded || currentPlayer.isAllIn) {
+      console.log(`❌ AI触发条件不满足，跳过AI决策`);
+      return;
+    }
+
+    console.log(`✅ AI触发条件满足，准备启动AI决策...`);
 
     const thinkingTime = 2000; // 新AI系统：增加到2秒思考时间，给GTO决策更多时间
 
@@ -831,12 +846,17 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
           传递给AI的当前轮次行动: newGameState.currentRoundActions
         });
 
+        // 🔧 构建对手档案（修复空档案问题）
+        const { FastDecisionEngine: FDE } = await import('../ai/fast-decision-engine.ts');
+        const opponentProfiles = FDE.buildBasicOpponentProfiles(newGameState, currentPlayer.id);
+        console.log(`👥 构建了${opponentProfiles.size}个对手档案`);
+
         const startTime = Date.now();
         const aiDecision = await fastDecisionEngineRef.current.makeUltraFastDecision(
           newGameState,
           currentPlayer.id,
           currentPlayer.holeCards || [],
-          new Map(), // 对手档案
+          opponentProfiles, // 🔧 使用构建的对手档案
           15000 // 15秒快速超时
         );
 

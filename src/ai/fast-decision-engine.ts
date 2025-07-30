@@ -2,7 +2,7 @@ import { NewGameState } from '../core/game-engine';
 import { Card } from '../types/poker';
 import { AdaptivePromptManager } from './adaptive-prompt-manager.ts';
 import { AIAPIPool } from './ai-api-pool.ts';
-import { AIDecision, OpponentProfile } from './ai-player.ts';
+import { AIDecision, OpponentProfile, RecentAction } from './ai-player.ts';
 import { SituationComplexityAnalyzer } from './situation-complexity-analyzer.ts';
 import { PokerContextCacheManager, CachedPromptRequest } from './poker-context-cache-manager.ts';
 import { RealPokerMathEngine } from './real-poker-math.ts';
@@ -1069,12 +1069,42 @@ export class FastDecisionEngine {
   }
 
   private buildActionSequence(gameState: NewGameState): string {
-    if (!gameState.currentRoundActions || gameState.currentRoundActions.length === 0) {
+    // 🔧 修复：使用actionHistory而不是currentRoundActions获取完整行动序列
+    if (!gameState.actionHistory || gameState.actionHistory.length === 0) {
       return '游戏开始';
     }
 
-    return gameState.currentRoundActions
-      .map(action => `${action.playerName}:${action.action}${action.amount ? `(${action.amount})` : ''}`)
+    // 构建当前轮次的行动序列
+    const currentRoundActions = gameState.actionHistory
+      .filter(action => action.phase === gameState.phase)
+      .filter(action => action.action !== 'fold'); // 排除弃牌以减少噪音
+
+    if (currentRoundActions.length === 0) {
+      // 如果当前轮次无行动，显示上一轮次的关键行动
+      const previousPhases = ['preflop', 'flop', 'turn', 'river'];
+      const currentPhaseIndex = previousPhases.indexOf(gameState.phase);
+      
+      if (currentPhaseIndex > 0) {
+        const previousPhase = previousPhases[currentPhaseIndex - 1];
+        const previousRoundActions = gameState.actionHistory
+          .filter(action => action.phase === previousPhase)
+          .filter(action => action.action !== 'fold' && action.action !== 'check')
+          .slice(-3); // 只显示最后3个重要行动
+        
+        if (previousRoundActions.length > 0) {
+          const actionStr = previousRoundActions
+            .map(action => `${action.playerName}:${action.action}${action.amount ? `($${action.amount})` : ''}`)
+            .join(' → ');
+          return `${previousPhase}轮: ${actionStr} | ${gameState.phase}轮开始`;
+        }
+      }
+      
+      return `${gameState.phase}轮开始`;
+    }
+
+    // 显示当前轮次的行动序列
+    return currentRoundActions
+      .map(action => `${action.playerName}:${action.action}${action.amount ? `($${action.amount})` : ''}`)
       .join(' → ');
   }
 
@@ -1219,10 +1249,16 @@ export class FastDecisionEngine {
         chips: gameState.players.find(p => p.id === profile.playerId)?.chips || 0
       }));
 
+    // 🔧 获取庄家信息
+    const dealerPlayer = gameState.players.find((p, index) => index === gameState.dealerIndex);
+    const dealerName = dealerPlayer ? dealerPlayer.name : `座位${gameState.dealerIndex + 1}`;
+
     return {
       holeCards: holeCardsStr,
       position: position,
       positionIndex: player.position,
+      dealerIndex: gameState.dealerIndex,
+      dealerName: dealerName,
       myChips: player.chips,
       pot: gameState.pot,
       toCall: this.getAmountToCall(gameState, playerId),
@@ -1269,6 +1305,74 @@ export class FastDecisionEngine {
     const pfr = profile.pfr || 18;
     const aggression = profile.aggression || 2.0;
 
+    if (vpip > 28 && pfr > 22 && aggression > 2.5) return 'LAG';
+    if (vpip < 20 && pfr < 15 && aggression < 1.5) return 'TP';
+    if (vpip > 35 && aggression < 1.5) return 'LP';
+    return 'TAG';
+  }
+
+  // 🔧 构建基础对手档案（修复空档案问题）
+  static buildBasicOpponentProfiles(gameState: NewGameState, currentPlayerId: string): Map<string, OpponentProfile> {
+    const profiles = new Map<string, OpponentProfile>();
+    
+    // 为每个非当前玩家构建基础档案
+    gameState.players
+      .filter(player => player.id !== currentPlayerId && player.isActive)
+      .forEach(player => {
+        // 从行动历史分析玩家行为
+        const playerActions = gameState.actionHistory?.filter(action => action.playerId === player.id) || [];
+        
+        // 计算基础统计
+        const totalActions = playerActions.length;
+        const raises = playerActions.filter(a => a.action === 'raise' || a.action === 'bet').length;
+        const calls = playerActions.filter(a => a.action === 'call').length;
+        const folds = playerActions.filter(a => a.action === 'fold').length;
+        
+        // 估算统计数据（基于有限的游戏历史）
+        const estimatedVPIP = totalActions > 0 ? Math.min(((calls + raises) / Math.max(totalActions, 1)) * 100, 50) : 25;
+        const estimatedPFR = totalActions > 0 ? Math.min((raises / Math.max(totalActions, 1)) * 100, 30) : 15;
+        const estimatedAggression = totalActions > 0 ? Math.min(raises / Math.max(calls + raises, 1) * 3, 5) : 2.0;
+        
+        // 分析最近行动
+        const recentActions: RecentAction[] = playerActions
+          .slice(-5) // 最近5个行动
+          .map(action => ({
+            action: action.action,
+            amount: action.amount || 0,
+            position: action.position || 'unknown',
+            phase: action.phase,
+            outcome: 'unknown',
+            timestamp: Date.now()
+          }));
+
+        // 创建对手档案
+        const profile: OpponentProfile = {
+          playerId: player.id,
+          playerName: player.name,
+          vpip: Math.round(estimatedVPIP),
+          pfr: Math.round(estimatedPFR),
+          aggression: Math.round(estimatedAggression * 10) / 10,
+          tightness: Math.max(0.1, 1 - (estimatedVPIP / 50)),
+          bluffFrequency: Math.min(0.3, estimatedAggression / 10),
+          positionAwareness: 0.5, // 默认中等位置意识
+          recentActions: recentActions,
+          lastUpdate: Date.now(),
+          tendency: 'TAG' // 默认为紧凶型，会在下面重新计算
+        };
+
+        // 重新分类倾向
+        profile.tendency = this.classifyPlayerTendencyFromStats(profile.vpip, profile.pfr, profile.aggression);
+        
+        profiles.set(player.id, profile);
+        
+        console.log(`👤 构建对手档案: ${player.name} - VPIP:${profile.vpip}% PFR:${profile.pfr}% AGG:${profile.aggression} (${profile.tendency})`);
+      });
+
+    return profiles;
+  }
+
+  // 🔧 从统计数据分类玩家倾向（静态方法版本）
+  private static classifyPlayerTendencyFromStats(vpip: number, pfr: number, aggression: number): 'LAG' | 'TAG' | 'LP' | 'TP' {
     if (vpip > 28 && pfr > 22 && aggression > 2.5) return 'LAG';
     if (vpip < 20 && pfr < 15 && aggression < 1.5) return 'TP';
     if (vpip > 35 && aggression < 1.5) return 'LP';

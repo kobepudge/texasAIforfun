@@ -253,9 +253,9 @@ ${gameData.board ? `**公共牌**: ${gameData.board}` : ''}
 ${gameData.realCalculations ? `
 **数学分析**:
 - 有效筹码: ${gameData.realCalculations.effectiveStack}BB
-- 底池赔率: ${gameData.realCalculations.potOdds}
-- SPR: ${gameData.realCalculations.spr}
-- 手牌强度: ${gameData.realCalculations.handStrength}` : ''}
+- 底池赔率: ${this.formatPotOdds(gameData.realCalculations.potOdds)}
+- SPR: ${this.formatSPR(gameData.realCalculations.spr)}
+- 手牌强度: ${this.formatHandStrength(gameData.realCalculations.handStrength)}` : ''}
 
 **对手档案**:
 ${gameData.opponentProfiles.map((p: any) => 
@@ -460,5 +460,34 @@ ${gameData.opponentProfiles.map((p: any) =>
     const advantage = positionAdvantages[gameData.position] || '';
     
     return `庄家:${dealerName} | 相对位置:第${relativePos + 1}个 | ${advantage}`;
+  }
+
+  // 🔧 数学分析格式化方法
+  private formatPotOdds(potOdds: any): string {
+    if (!potOdds || typeof potOdds !== 'object') {
+      return String(potOdds || 'N/A');
+    }
+    
+    return `${potOdds.odds || 'N/A'} (${potOdds.percentage || 0}% 需要胜率)`;
+  }
+
+  private formatSPR(spr: any): string {
+    if (!spr || typeof spr !== 'object') {
+      return String(spr || 'N/A');
+    }
+    
+    return `${spr.spr || 'N/A'} (${spr.category || 'unknown'} - ${spr.playingStyle || 'standard play'})`;
+  }
+
+  private formatHandStrength(handStrength: any): string {
+    if (!handStrength || typeof handStrength !== 'object') {
+      return String(handStrength || 'N/A');
+    }
+    
+    const strength = handStrength.absoluteStrength || 0;
+    const category = handStrength.handCategory || 'unknown';
+    const outs = handStrength.improvementOuts || 0;
+    
+    return `${(strength * 100).toFixed(1)}% (${category}, ${outs} outs)`;
   }
 }

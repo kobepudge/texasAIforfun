@@ -120,7 +120,7 @@ Always use `--legacy-peer-deps` flag when installing npm packages due to React 1
 - 修复 `fast-decision-engine.ts` 中hardcoded `facing_action='none'` 问题
 - 增强 `server/gto-data.js` 决策验证系统，支持复杂多轮行动识别
 - 添加 `validateDecision()` 函数防止不合法poker动作
-- 支持602,880种GTO决策场景完全合法化
+- 支持2,245,632种GTO决策场景完全合法化 (从3个筹码等级扩展到8个精细等级)
 - 正确处理raise_2bb, raise_3bb, 3bet, 4bet等所有行动类型
 
 **测试验证**:
