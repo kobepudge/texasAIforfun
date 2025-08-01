@@ -3,10 +3,8 @@ command = "cd server && npm install --legacy-peer-deps"
 
 [deploy]
 startCommand = "cd server && npm start"
+watchPatterns = ["server/**"]
 
 [env]
 NODE_ENV = "production"
 PORT = "3001"
-
-[deploy]
-watchPatterns = ["server/**"]
