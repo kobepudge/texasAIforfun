@@ -221,10 +221,10 @@ ${playerProfile ? `**你的最近表现:** 激进度${(playerProfile.tendencies.
       messages: optimizedHistory,
       response_format: { type: 'json_object' },
       temperature: 0.3, // 降低温度以获得更一致的响应
-      max_tokens: 150   // 限制token数量以加快响应
+      max_tokens: 3000   // 🔧 统一token限制为3000，解决截断问题
     };
 
-    console.log(`🌐 发送优化API请求 - 消息数: ${optimizedHistory.length}, max_tokens: 150`);
+    console.log(`🌐 发送优化API请求 - 消息数: ${optimizedHistory.length}, max_tokens: 3000`);
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -240,7 +240,20 @@ ${playerProfile ? `**你的最近表现:** 激进度${(playerProfile.tendencies.
     }
 
     const result = await response.json();
-    const decisionText = result.choices[0].message.content;
+    
+    // 🔍 检查finish_reason，确保响应完整
+    const choice = result.choices[0];
+    if (choice.finish_reason === 'length') {
+      console.warn('⚠️ Fast AI响应因token限制被截断 (finish_reason: length)');
+      throw new Error('响应被截断，请增加max_tokens限制');
+    }
+    
+    const decisionText = choice.message.content;
+    
+    // 🔍 检查内容完整性
+    if (!decisionText || decisionText.trim().length === 0) {
+      throw new Error('API返回空内容');
+    }
     
     console.log(`📥 API响应: ${decisionText}`);
 

@@ -181,7 +181,7 @@ export class RealtimeAISystem {
       ],
       response_format: { type: 'json_object' },
       temperature: 0.1, // 极低温度确保一致性
-      max_tokens: type === 'decision' ? 100 : 200
+      max_tokens: 3000 // 🔧 统一token限制为3000，解决截断问题
     };
 
     console.log(`🌐 ${this.playerName} 发送${type}分析请求...`);
@@ -200,7 +200,20 @@ export class RealtimeAISystem {
     }
 
     const result = await response.json();
-    const content = result.choices[0].message.content;
+    
+    // 🔍 检查finish_reason，确保响应完整
+    const choice = result.choices[0];
+    if (choice.finish_reason === 'length') {
+      console.warn(`⚠️ ${this.playerName} ${type}分析因token限制被截断 (finish_reason: length)`);
+      throw new Error('响应被截断，请增加max_tokens限制');
+    }
+    
+    const content = choice.message.content;
+    
+    // 🔍 检查内容完整性
+    if (!content || content.trim().length === 0) {
+      throw new Error('API返回空内容');
+    }
     
     console.log(`📥 ${this.playerName} 收到${type}分析: ${content}`);
     

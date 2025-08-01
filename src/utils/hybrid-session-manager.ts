@@ -127,7 +127,7 @@ export class HybridSessionManager {
       messages: messages,
       response_format: { type: 'json_object' },
       temperature: this.config.temperature || 0.7,
-      max_tokens: this.config.maxTokens || 2000
+      max_tokens: 3000 // 🔧 统一token限制为3000，解决截断问题
     };
 
     console.log(`📤 发送Chat Completions请求:`);
@@ -159,6 +159,17 @@ export class HybridSessionManager {
 
       const data = await response.json();
       const responseTime = Date.now() - startTime;
+      
+      // 🔍 检查finish_reason，确保响应完整
+      if (data.choices && data.choices[0]) {
+        const choice = data.choices[0];
+        if (choice.finish_reason === 'length') {
+          console.warn(`⚠️ Hybrid Session响应因token限制被截断 (finish_reason: length)`);
+          throw new Error('响应被截断，请增加max_tokens限制');
+        } else if (choice.finish_reason === 'stop') {
+          console.log(`✅ Hybrid Session响应正常完成 (finish_reason: stop)`);
+        }
+      }
       
       console.log(`✅ Chat Completions API请求成功 (${responseTime}ms)`);
       console.log(`📊 Token使用情况:`, data.usage);

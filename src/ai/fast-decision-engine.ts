@@ -91,7 +91,7 @@ export class FastDecisionEngine {
       baseUrl: apiConfig.baseUrl,
       model: apiConfig.model,
       temperature: 0.1,
-      maxTokens: 300, // 🔧 提升token限制防止JSON截断
+      maxTokens: 3000, // 🔧 统一token限制为3000，解决截断问题
       timeout: 0 // 移除超时限制
     };
 
@@ -178,18 +178,39 @@ export class FastDecisionEngine {
 
       // 🔥 翻后或GTO失败：使用对话状态的Context Caching
       console.log('🧠 使用对话状态Context Caching专业决策系统');
+      console.log(`📊 决策路径追踪: Ultra-Fast → Context Caching → 玩家${playerId}`);
       
-      // Step 1: 获取玩家的对话ID
-      const conversationId = this.playerConversations.get(playerId);
+      // Step 1: 获取或恢复玩家的对话ID
+      let conversationId = this.playerConversations.get(playerId);
       if (!conversationId) {
-        console.warn(`⚠️ 玩家${playerId}没有预热对话，回退到传统方式`);
-        return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+        console.warn(`⚠️ 玩家${playerId}没有预热对话，尝试立即初始化...`);
+        
+        try {
+          // 🔥 立即为该玩家初始化对话状态
+          const playerName = `AI_${playerId}`;
+          conversationId = await this.conversationManager.initializePlayerConversation(playerId, playerName);
+          this.playerConversations.set(playerId, conversationId);
+          console.log(`✅ 紧急初始化对话成功: ${conversationId}`);
+        } catch (initError) {
+          console.error(`❌ 紧急初始化对话失败:`, initError);
+          console.warn(`⚠️ 最终回退到传统方式`);
+          return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+        }
       }
       
       // Step 2: 构建游戏数据并进行真实计算
       const gameData = this.buildEnhancedGameData(gameState, playerId, holeCards, opponentProfiles);
       
       console.log(`🎯 使用预热对话 ${conversationId} 进行决策 (享受Context Caching加速)`);
+      
+      // 📊 记录决策路径和数据统计
+      console.log(`📊 游戏数据统计:`);
+      console.log(`   阶段: ${gameState.phase}`);
+      console.log(`   位置: ${gameData.position}`);
+      console.log(`   筹码: ${gameData.myChips}`);
+      console.log(`   底池: ${gameData.pot}`);
+      console.log(`   需跟注: ${gameData.toCall}`);
+      console.log(`   手牌: ${gameData.holeCards}`);
 
       // Step 3: 在对话中进行决策（利用缓存）
       const aiResponse = await this.conversationManager.makeDecisionInConversation(conversationId, gameData);
@@ -203,11 +224,53 @@ export class FastDecisionEngine {
       
       console.log(`⚡ 对话Context Caching决策完成: ${decision.action} (${totalTime}ms)`);
       
+      // 📊 记录详细决策统计
+      console.log(`📊 决策统计报告:`);
+      console.log(`   决策路径: Ultra-Fast → Context Caching`);
+      console.log(`   对话状态: 正常使用预热缓存`);
+      console.log(`   响应时间: ${totalTime}ms`);
+      console.log(`   决策结果: ${decision.action} ${decision.amount || ''}`);
+      console.log(`   置信度: ${(decision.confidence * 100).toFixed(1)}%`);
+      console.log(`   推理: ${decision.reasoning?.substring(0, 100)}...`);
+      
       return decision;
 
     } catch (error) {
-      console.error('❌ Ultra-Fast决策失败，回退到传统方式:', error);
-      return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+      console.error('❌ Ultra-Fast决策失败:', error);
+      
+      // 🔗 尝试恢复对话然后再次尝试
+      const conversationId = this.playerConversations.get(playerId);
+      if (conversationId) {
+        try {
+          console.log(`🔄 尝试恢复对话: ${conversationId}`);
+          const isHealthy = await this.conversationManager.healthCheckConversation(conversationId);
+          if (isHealthy) {
+            console.log(`✅ 对话恢复成功，重试决策`);
+            const gameData = this.buildEnhancedGameData(gameState, playerId, holeCards, opponentProfiles);
+            const aiResponse = await this.conversationManager.makeSmartDecisionInConversation(conversationId, gameData);
+            const decision = this.parseConversationResponse(aiResponse);
+            console.log(`✅ 恢复后决策成功: ${decision.action}`);
+            return decision;
+          }
+        } catch (recoveryError) {
+          console.warn(`⚠️ 对话恢复失败:`, recoveryError);
+        }
+      }
+      
+      console.warn(`⚠️ 最终回退到传统方式`);
+      console.log(`📊 决策路径追踪: Ultra-Fast → Context Caching → 传统回退 → 玩家${playerId}`);
+      
+      const fallbackStartTime = Date.now();
+      const fallbackDecision = await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
+      const fallbackTime = Date.now() - fallbackStartTime;
+      
+      console.log(`📊 传统回退决策统计:`);
+      console.log(`   决策路径: Ultra-Fast → 传统回退`);
+      console.log(`   回退原因: Context Caching失败`);
+      console.log(`   响应时间: ${fallbackTime}ms`);
+      console.log(`   决策结果: ${fallbackDecision.action} ${fallbackDecision.amount || ''}`);
+      
+      return fallbackDecision;
     }
   }
 
@@ -917,6 +980,91 @@ export class FastDecisionEngine {
     console.log(`🔍 计算后面玩家: 当前玩家${playerId}, 后面还有${playersBehind}个玩家未行动`);
 
     return playersBehind;
+  }
+
+  // 🎯 从响应文本中提取JSON - 多种策略
+  private extractJsonFromResponse(responseText: string): string {
+    // 策瑥1: 标准JSON匹配
+    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    // 策瑥2: 更宽松的JSON匹配
+    jsonMatch = responseText.match(/\{[^}]*"action"[^}]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    // 策瑥3: 逐行查找JSON关键字段
+    const lines = responseText.split('\n');
+    const jsonLines: string[] = [];
+    let inJson = false;
+
+    for (const line of lines) {
+      if (line.includes('{') || line.includes('"action"')) {
+        inJson = true;
+      }
+      if (inJson) {
+        jsonLines.push(line);
+      }
+      if (line.includes('}')) {
+        inJson = false;
+        break;
+      }
+    }
+
+    if (jsonLines.length > 0) {
+      return jsonLines.join('\n');
+    }
+
+    throw new Error('响应中未找到有效的JSON格式');
+  }
+
+  // 🔧 修复不完整的JSON
+  private repairIncompleteJson(jsonStr: string): string {
+    console.log('🔧 尝试修复JSON:', jsonStr);
+    
+    let repaired = jsonStr.trim();
+
+    // 修复缺失的开始花括号
+    if (!repaired.startsWith('{')) {
+      repaired = '{' + repaired;
+    }
+
+    // 修复缺失的结束花括号
+    if (!repaired.endsWith('}')) {
+      repaired = repaired + '}';
+    }
+
+    // 修复常见的截断问题
+    // 如果reasoning字段被截断，添加默认结束
+    if (repaired.includes('"reasoning"') && !repaired.match(/"reasoning":\s*"[^"]*"/)) {
+      repaired = repaired.replace(/"reasoning":\s*"[^"]*$/, '"reasoning": "分析中断"');
+    }
+
+    // 修复缺失的逗号
+    repaired = repaired.replace(/"\s*\n\s*"/g, '",\n"');
+    
+    // 修复数字字段的引号问题
+    repaired = repaired.replace(/"(amount|confidence)":\s*"(\d+\.?\d*)"/g, '"$1": $2');
+
+    // 确保必需字段存在
+    if (!repaired.includes('"action"')) {
+      repaired = repaired.replace(/\{/, '{"action": "fold",');
+    }
+    if (!repaired.includes('"amount"')) {
+      repaired = repaired.replace(/\}$/, ', "amount": 0}');
+    }
+    if (!repaired.includes('"confidence"')) {
+      repaired = repaired.replace(/\}$/, ', "confidence": 0.7}');
+    }
+    if (!repaired.includes('"reasoning"')) {
+      repaired = repaired.replace(/\}$/, ', "reasoning": "智能修复"}');
+    }
+
+    console.log('🔧 修复后的JSON:', repaired);
+    return repaired;
   }
 
   // 🔍 解析对话响应为AI决策 - 增强版本

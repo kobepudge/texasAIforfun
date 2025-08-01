@@ -820,12 +820,13 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
         });
 
         const startTime = Date.now();
-        const aiDecision = await fastDecisionEngineRef.current.makeDecision(
+        // 🚀 使用makeUltraFastDecision以确保使用预热的conversationId
+        const aiDecision = await fastDecisionEngineRef.current.makeUltraFastDecision(
           newGameState,
           currentPlayer.id,
           currentPlayer.holeCards || [],
           new Map(), // 对手档案
-          15000 // 15秒快速超时
+          0 // 无超时限制，确保决策质量
         );
 
         const decision = {

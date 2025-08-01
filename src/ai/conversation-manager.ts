@@ -109,10 +109,17 @@ export class ConversationManager {
     conversation.messageHistory.push(systemMessage);
     conversation.tokenCount.systemTokens = systemMessage.tokenCount || 0;
 
-    // 发送确认消息让AI确认专业身份
+    // 发送确认消息让AI确认专业身份和玩家身份
     const confirmationMessage = {
       role: 'user' as const,
-      content: `你现在是Phil Ivey级别的德州扑克专业AI。请确认你已准备好为 ${conversation.playerName} 提供专业决策。简短回复"Ready for professional poker decisions"`
+      content: `你现在是Phil Ivey级别的德州扑克专业AI。
+
+🎯 **重要：你的玩家身份**
+- 你就是 **${conversation.playerName}** 这个玩家本人
+- 你不是观察者或顾问，而是直接代表这个玩家做决策
+- 所有决策都是以${conversation.playerName}的身份和利益为出发点
+
+请确认你已准备好以${conversation.playerName}的身份提供专业决策。简短回复"Ready for professional poker decisions as ${conversation.playerName}"`
     };
 
     conversation.messageHistory.push({
@@ -159,6 +166,13 @@ export class ConversationManager {
     const gamePrompt = this.buildGameDecisionPrompt(gameData);
     
     console.log(`⚡ 发送决策请求到对话 ${conversationId} (利用${conversation.tokenCount.systemTokens} cached tokens)`);
+    
+    // 📊 Token使用统计
+    const beforeTokens = conversation.tokenCount.totalTokens;
+    console.log(`📊 Token使用统计(决策前):`);
+    console.log(`   系统缓存: ${conversation.tokenCount.systemTokens} tokens`);
+    console.log(`   对话总量: ${beforeTokens} tokens`);
+    console.log(`   消息数量: ${conversation.messageHistory.length} 条`);
 
     // 添加用户消息
     const userMessage: ConversationMessage = {
@@ -183,6 +197,18 @@ export class ConversationManager {
         tokenCount: this.estimateTokenCount(response)
       });
 
+      // 📊 Token使用统计(决策后)
+      const afterTokens = conversation.messageHistory.reduce(
+        (sum, msg) => sum + (msg.tokenCount || 0), 0
+      );
+      const tokenUsedThisRequest = afterTokens - beforeTokens;
+      
+      console.log(`📊 Token使用统计(决策后):`);
+      console.log(`   本次请求使用: ${tokenUsedThisRequest} tokens`);
+      console.log(`   对话新总量: ${afterTokens} tokens`);
+      console.log(`   缓存节省: ${conversation.tokenCount.systemTokens} tokens`);
+      console.log(`   效率比: ${((conversation.tokenCount.systemTokens / afterTokens) * 100).toFixed(1)}%`);
+      
       // 清理历史消息（保持对话窗口）
       this.maintainConversationWindow(conversation);
 
@@ -209,7 +235,7 @@ export class ConversationManager {
       model: this.apiConfig.model,
       messages: messages,
       temperature: isDecisionRequest ? 0.3 : 0.1, // 决策时稍高温度
-      max_tokens: isDecisionRequest ? 300 : 100, // 🔧 提升token限制：决策300，预热100
+      max_tokens: 3000, // 🔧 统一token限制为3000，解决截断问题
       stream: false
     };
 
@@ -234,7 +260,31 @@ export class ConversationManager {
       throw new Error('API响应格式错误');
     }
 
-    return data.choices[0].message.content;
+    // 🔍 检查finish_reason，确保响应完整
+    const choice = data.choices[0];
+    if (choice.finish_reason === 'length') {
+      console.warn('⚠️ API响应因token限制被截断 (finish_reason: length)');
+      throw new Error('响应被截断，请增加max_tokens限制');
+    } else if (choice.finish_reason === 'stop') {
+      console.log('✅ API响应正常完成 (finish_reason: stop)');
+    } else {
+      console.warn(`⚠️ 未预期的finish_reason: ${choice.finish_reason}`);
+    }
+
+    const content = choice.message.content;
+    
+    // 🔍 检查内容完整性
+    if (!content || content.trim().length === 0) {
+      throw new Error('API返回空内容');
+    }
+    
+    // 🔍 检查JSON响应是否被截断（针对决策请求）
+    if (isDecisionRequest && content.includes('reasoning') && !content.includes('}')) {
+      console.warn('⚠️ JSON响应可能被截断，缺少结束括号');
+      throw new Error('JSON响应不完整，可能被截断');
+    }
+
+    return content;
   }
 
   // 🏗️ 构建游戏决策提示（只包含新数据）
@@ -255,24 +305,79 @@ export class ConversationManager {
       ).join('\n');
     };
 
-    return `🎯 当前游戏状态需要你的专业决策:
+    // 👤 提取玩家名称(从行动序列中推断或使用conversation信息)
+    const extractPlayerName = (actionSequence: string, conversationPlayerName: string) => {
+      // 从行动序列中查找玩家名称模式
+      const playerMatch = actionSequence.match(/(Goliath-\d+)/g);
+      if (playerMatch && playerMatch.length > 0) {
+        // 查找最后一个玩家名称，通常是最后行动的玩家
+        const lastPlayerInSequence = playerMatch[playerMatch.length - 1];
+        if (conversationPlayerName.includes('Goliath') || conversationPlayerName.startsWith('AI_')) {
+          // 优先使用conversation中的玩家名
+          return conversationPlayerName.replace('AI_', '');
+        }
+        return lastPlayerInSequence;
+      }
+      return conversationPlayerName.replace('AI_', '') || 'Player';
+    };
+    
+    const playerName = extractPlayerName(gameData.actionSequence, conversation.playerName);
+    const seatInfo = `${gameData.positionIndex + 1}号座位`;
+    const totalSeats = 9; // 默认为9人桌
+    
+    // 🎯 阶段说明
+    const getPhaseExplanation = (phase: string, board?: string) => {
+      switch(phase) {
+        case 'preflop': return '翻牌前阶段 - 只看得到你的底牌';
+        case 'flop': return `翻牌阶段 - 前3张公共牌已发出${board ? ': ' + board : ''}`;
+        case 'turn': return `转牌阶段 - 前4张公共牌已发出${board ? ': ' + board : ''}`;
+        case 'river': return `河牌阶段 - 所有5张公共牌已发出${board ? ': ' + board : ''}`;
+        default: return phase;
+      }
+    };
+    
+    // 🃏 行动序列说明
+    const getActionSequenceExplanation = (phase: string) => {
+      if (phase === 'preflop') {
+        return '翻牍前的完整行动记录';
+      } else {
+        return `${phase}阶段开始，按照位置顺序轮流行动（小盲位先行动）`;
+      }
+    };
 
-**手牌**: ${gameData.holeCards}
-**位置**: ${gameData.position} | 座位${gameData.positionIndex + 1}/9 | ${this.getPositionContext(gameData)}
-**阶段**: ${gameData.phase}
-**底池**: $${gameData.pot}
-**筹码**: $${gameData.myChips}
-**需跟注**: $${gameData.toCall}
-**行动序列**: ${gameData.actionSequence}
+    return `🎯 **你的决策时刻到了！**
 
-${gameData.board ? `**公共牌**: ${gameData.board}` : ''}
+👤 **你的身份确认**:
+- 你就是 **${playerName}** 这个玩家
+- 你坐在 **${seatInfo}** (共${totalSeats}人桌)
+- 位置名称: **${gameData.position}**
+- 位置优劣: ${this.getPositionContext(gameData)}
+
+🃏 **当前游戏状态**:
+- **手牌**: ${gameData.holeCards} (你的私人底牌)
+- **阶段**: ${getPhaseExplanation(gameData.phase, gameData.board)}
+- **底池**: $${gameData.pot.toLocaleString()}
+- **你的筹码**: $${gameData.myChips.toLocaleString()}
+- **需要跟注**: $${gameData.toCall.toLocaleString()} ${gameData.toCall === 0 ? '(可以免费看牌)' : ''}
+
+🎯 **行动序列说明**:
+${getActionSequenceExplanation(gameData.phase)}
+**具体记录**: ${gameData.actionSequence}
+${gameData.phase !== 'preflop' ? `
+⚠️ **注意**: 现在是${gameData.phase}阶段，你需要基于公共牌和你的手牌做决策` : ''}
+
+${gameData.board ? `🃏 **公共牌**: ${gameData.board}
+这些是所有玩家都能看到的牌，结合你的手牌构成最强组合
+` : ''}
 ${gameData.realCalculations ? `
-**数学分析**:${formatRealCalculations(gameData.realCalculations)}` : ''}
-
-**对手档案**:
+📊 **数学分析**:${formatRealCalculations(gameData.realCalculations)}
+` : ''}
+👥 **对手档案**:
 ${formatOpponentProfiles(gameData.opponentProfiles)}
 
-请基于你的专业知识给出最优决策，返回JSON格式:
+🤖 **你的任务**: 作为${playerName}，请基于以上信息做出最优决策。
+
+请返回JSON格式的决策:
 {
   "action": "fold/call/raise/all-in",
   "amount": 数字,
@@ -487,6 +592,63 @@ ${formatOpponentProfiles(gameData.opponentProfiles)}
     };
 
     return positionStrategies[position] || `${position}位置`;
+  }
+
+  // 🔄 更新玩家位置和筹码信息(局间更新)
+  async updatePlayerGameStatus(
+    conversationId: string, 
+    position: string, 
+    seatIndex: number,
+    totalSeats: number,
+    chips: number,
+    dealerPosition?: string
+  ): Promise<void> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) {
+      throw new Error(`对话不存在: ${conversationId}`);
+    }
+
+    const updateMessage = {
+      role: 'user' as const,
+      content: `🔄 **游戏状态更新** (新一局开始)
+
+🎯 **你的现在状态** (作为${conversation.playerName}):
+- **位置**: ${position} (第${seatIndex + 1}个座位 / 共${totalSeats}个座位)
+- **筹码**: $${chips.toLocaleString()}
+- **座位说明**: 你坐在${totalSeats}人桌的${seatIndex + 1}号位置
+${dealerPosition ? `- **庄家位置**: ${dealerPosition}` : ''}
+
+请记住这些信息，准备为接下来的决策做准备。简短确认"Status updated, ready for decisions"`
+    };
+
+    // 添加状态更新消息
+    conversation.messageHistory.push({
+      ...updateMessage,
+      timestamp: Date.now(),
+      tokenCount: this.estimateTokenCount(updateMessage.content)
+    });
+
+    try {
+      // 发送状态更新请求
+      const response = await this.makeConversationAPIRequest(conversation, false);
+      
+      // 添加AI响应
+      conversation.messageHistory.push({
+        role: 'assistant',
+        content: response,
+        timestamp: Date.now(),
+        tokenCount: this.estimateTokenCount(response)
+      });
+
+      // 更新活动时间
+      conversation.lastActivity = Date.now();
+      
+      console.log(`✅ 玩家${conversation.playerName}状态更新成功: ${position}, $${chips.toLocaleString()}`);
+      
+    } catch (error) {
+      console.error(`❌ 玩家状态更新失败 ${conversationId}:`, error);
+      throw error;
+    }
   }
 
   // 🎯 获取缓存的扑克专业知识

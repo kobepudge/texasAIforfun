@@ -209,7 +209,31 @@ export class AIAPIPool {
         throw new Error('API响应格式错误');
       }
 
-      return data.choices[0].message.content;
+      // 🔍 检查finish_reason，确保响应完整
+      const choice = data.choices[0];
+      if (choice.finish_reason === 'length') {
+        console.warn(`⚠️ 连接${connection.id} API响应因token限制被截断 (finish_reason: length)`);
+        throw new Error('响应被截断，请增加max_tokens限制');
+      } else if (choice.finish_reason === 'stop') {
+        console.log(`✅ 连接${connection.id} API响应正常完成 (finish_reason: stop)`);
+      } else {
+        console.warn(`⚠️ 连接${connection.id} 未预期的finish_reason: ${choice.finish_reason}`);
+      }
+
+      const content = choice.message.content;
+      
+      // 🔍 检查内容完整性
+      if (!content || content.trim().length === 0) {
+        throw new Error('API返回空内容');
+      }
+      
+      // 🔍 检查JSON响应是否被截断
+      if (content.includes('reasoning') && !content.includes('}')) {
+        console.warn(`⚠️ 连接${connection.id} JSON响应可能被截断，缺少结束括号`);
+        throw new Error('JSON响应不完整，可能被截断');
+      }
+
+      return content;
 
     } catch (error) {
       if (timeoutId) {
