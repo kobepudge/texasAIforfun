@@ -129,6 +129,33 @@ export function PokerTable() {
 
         console.log('✅ 新AI系统强制初始化完成');
         console.log('⚡ 配置:', apiConfig);
+
+        // 🔥 预热所有AI玩家 - 建立Context Caching
+        const warmupAIPlayers = async () => {
+          try {
+            console.log('🚀 开始预热AI玩家...');
+            
+            // 收集所有AI玩家信息
+            const aiPlayers = gameState.players
+              .filter(player => player.isAI)
+              .map(player => ({
+                id: player.id,
+                name: player.name
+              }));
+
+            if (aiPlayers.length > 0) {
+              await fastDecisionEngineRef.current.warmupMultipleAIPlayers(aiPlayers);
+              console.log(`🎯 成功预热了${aiPlayers.length}个AI玩家`);
+            } else {
+              console.log('ℹ️ 没有AI玩家需要预热');
+            }
+          } catch (error) {
+            console.error('❌ AI玩家预热失败:', error);
+          }
+        };
+
+        // 延迟预热，确保AI系统完全初始化
+        setTimeout(warmupAIPlayers, 1000);
       } catch (error) {
         console.error('❌ 新AI系统初始化失败:', error);
       }

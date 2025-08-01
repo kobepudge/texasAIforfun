@@ -102,7 +102,7 @@ export class AIInstanceManager {
       apiConfig: {
         ...this.config.apiConfig,
         temperature: 0.1,
-        maxTokens: 150
+        maxTokens: 300 // 🔧 提升token限制防止JSON截断
       },
       decisionTimeoutMs: this.config.defaultTimeout
     };

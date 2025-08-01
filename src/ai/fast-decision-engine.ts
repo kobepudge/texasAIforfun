@@ -91,7 +91,7 @@ export class FastDecisionEngine {
       baseUrl: apiConfig.baseUrl,
       model: apiConfig.model,
       temperature: 0.1,
-      maxTokens: 150,
+      maxTokens: 300, // 🔧 提升token限制防止JSON截断
       timeout: 0 // 移除超时限制
     };
 
@@ -919,17 +919,25 @@ export class FastDecisionEngine {
     return playersBehind;
   }
 
-  // 🔍 解析对话响应为AI决策
+  // 🔍 解析对话响应为AI决策 - 增强版本
   private parseConversationResponse(responseText: string): AIDecision {
+    console.log('🔍 解析AI响应:', responseText.substring(0, 200) + '...');
+    
     try {
-      // 尝试提取JSON
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('响应中未找到JSON格式');
-      }
+      // 🎯 策略1: 标准JSON提取
+      let jsonStr = this.extractJsonFromResponse(responseText);
+      let parsed: any;
 
-      const jsonStr = jsonMatch[0];
-      const parsed = JSON.parse(jsonStr);
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseError) {
+        console.warn('⚠️ 标准JSON解析失败，尝试修复:', parseError);
+        
+        // 🔧 策略2: 智能JSON修复
+        const repairedJson = this.repairIncompleteJson(jsonStr);
+        parsed = JSON.parse(repairedJson);
+        console.log('✅ JSON修复成功');
+      }
 
       // 验证必需字段
       if (!parsed.action) {
@@ -1485,6 +1493,90 @@ class PerformanceTracker {
 
   getAllMetrics(): Map<string, PlayerMetrics> {
     return new Map(this.playerMetrics);
+  }
+  // 🎯 从响应文本中提取JSON - 多种策略
+  private extractJsonFromResponse(responseText: string): string {
+    // 策略1: 标准JSON匹配
+    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    // 策略2: 更宽松的JSON匹配
+    jsonMatch = responseText.match(/\{[^}]*"action"[^}]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    // 策略3: 逐行查找JSON关键字段
+    const lines = responseText.split('\n');
+    const jsonLines: string[] = [];
+    let inJson = false;
+
+    for (const line of lines) {
+      if (line.includes('{') || line.includes('"action"')) {
+        inJson = true;
+      }
+      if (inJson) {
+        jsonLines.push(line);
+      }
+      if (line.includes('}')) {
+        inJson = false;
+        break;
+      }
+    }
+
+    if (jsonLines.length > 0) {
+      return jsonLines.join('\n');
+    }
+
+    throw new Error('响应中未找到有效的JSON格式');
+  }
+
+  // 🔧 修复不完整的JSON
+  private repairIncompleteJson(jsonStr: string): string {
+    console.log('🔧 尝试修复JSON:', jsonStr);
+    
+    let repaired = jsonStr.trim();
+
+    // 修复缺失的开始花括号
+    if (!repaired.startsWith('{')) {
+      repaired = '{' + repaired;
+    }
+
+    // 修复缺失的结束花括号
+    if (!repaired.endsWith('}')) {
+      repaired = repaired + '}';
+    }
+
+    // 修复常见的截断问题
+    // 如果reasoning字段被截断，添加默认结束
+    if (repaired.includes('"reasoning"') && !repaired.match(/"reasoning":\s*"[^"]*"/)) {
+      repaired = repaired.replace(/"reasoning":\s*"[^"]*$/, '"reasoning": "分析中断"');
+    }
+
+    // 修复缺失的逗号
+    repaired = repaired.replace(/"\s*\n\s*"/g, '",\n"');
+    
+    // 修复数字字段的引号问题
+    repaired = repaired.replace(/"(amount|confidence)":\s*"(\d+\.?\d*)"/g, '"$1": $2');
+
+    // 确保必需字段存在
+    if (!repaired.includes('"action"')) {
+      repaired = repaired.replace(/\{/, '{"action": "fold",');
+    }
+    if (!repaired.includes('"amount"')) {
+      repaired = repaired.replace(/\}$/, ', "amount": 0}');
+    }
+    if (!repaired.includes('"confidence"')) {
+      repaired = repaired.replace(/\}$/, ', "confidence": 0.7}');
+    }
+    if (!repaired.includes('"reasoning"')) {
+      repaired = repaired.replace(/\}$/, ', "reasoning": "智能修复"}');
+    }
+
+    console.log('🔧 修复后的JSON:', repaired);
+    return repaired;
   }
 }
 

@@ -209,7 +209,7 @@ export class ConversationManager {
       model: this.apiConfig.model,
       messages: messages,
       temperature: isDecisionRequest ? 0.3 : 0.1, // 决策时稍高温度
-      max_tokens: isDecisionRequest ? 150 : 50, // 决策时更多tokens
+      max_tokens: isDecisionRequest ? 300 : 100, // 🔧 提升token限制：决策300，预热100
       stream: false
     };
 
