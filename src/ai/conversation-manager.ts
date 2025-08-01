@@ -1,5 +1,5 @@
 // 🎯 AI对话状态管理器 - 实现Context Caching的核心
-import { PokerContextCacheManager } from './poker-context-cache-manager.ts';
+// import { PokerContextCacheManager } from './poker-context-cache-manager';
 
 // 🔄 对话状态接口
 export interface ConversationState {
@@ -28,12 +28,12 @@ export interface ConversationMessage {
 // 🚀 对话管理器
 export class ConversationManager {
   private conversations: Map<string, ConversationState> = new Map();
-  private contextCacheManager: PokerContextCacheManager;
+  // private contextCacheManager: PokerContextCacheManager;
   private apiConfig: any;
 
   constructor(apiConfig: any) {
     this.apiConfig = apiConfig;
-    this.contextCacheManager = new PokerContextCacheManager();
+    // this.contextCacheManager = new PokerContextCacheManager();
     
     // 启动定期清理过期对话
     this.startCleanupScheduler();
@@ -96,7 +96,7 @@ export class ConversationManager {
   // 🔥 预热对话 - 建立专业知识缓存
   private async warmupConversation(conversation: ConversationState): Promise<void> {
     // 获取完整的专业知识系统提示
-    const systemPrompt = PokerContextCacheManager.CACHED_POKER_EXPERTISE;
+    const systemPrompt = this.getCachedPokerExpertise();
     
     // 添加系统消息到对话历史
     const systemMessage: ConversationMessage = {
@@ -239,6 +239,22 @@ export class ConversationManager {
 
   // 🏗️ 构建游戏决策提示（只包含新数据）
   private buildGameDecisionPrompt(gameData: any): string {
+    const formatRealCalculations = (realCalc: any) => {
+      if (!realCalc) return '数学分析数据不可用';
+      return `
+- 有效筹码: ${realCalc.effectiveStack}BB
+- 底池赔率: ${realCalc.potOdds?.odds || 'N/A'} (${realCalc.potOdds?.percentage?.toFixed(1) || 'N/A'}%)
+- SPR: ${realCalc.spr?.spr?.toFixed(1) || 'N/A'} (${realCalc.spr?.category || 'undefined'})
+- 手牌强度: ${realCalc.handStrength?.strength?.toFixed(2) || 'N/A'} (${realCalc.handStrength?.category || 'unknown'})`;
+    };
+
+    const formatOpponentProfiles = (profiles: any[]) => {
+      if (!profiles || profiles.length === 0) return '对手档案数据不可用';
+      return profiles.map((p: any) => 
+        `${p.name || 'Unknown'}(${p.position || 'N/A'}): VPIP${p.vpip || 0}% PFR${p.pfr || 0}% AGG${p.aggression || 0} ${p.tendency || 'unknown'}`
+      ).join('\n');
+    };
+
     return `🎯 当前游戏状态需要你的专业决策:
 
 **手牌**: ${gameData.holeCards}
@@ -251,16 +267,10 @@ export class ConversationManager {
 
 ${gameData.board ? `**公共牌**: ${gameData.board}` : ''}
 ${gameData.realCalculations ? `
-**数学分析**:
-- 有效筹码: ${gameData.realCalculations.effectiveStack}BB
-- 底池赔率: ${gameData.realCalculations.potOdds}
-- SPR: ${gameData.realCalculations.spr}
-- 手牌强度: ${gameData.realCalculations.handStrength}` : ''}
+**数学分析**:${formatRealCalculations(gameData.realCalculations)}` : ''}
 
 **对手档案**:
-${gameData.opponentProfiles.map((p: any) => 
-  `${p.name}(${p.position}): VPIP${p.vpip}% PFR${p.pfr}% AGG${p.aggression} ${p.tendency}`
-).join('\n')}
+${formatOpponentProfiles(gameData.opponentProfiles)}
 
 请基于你的专业知识给出最优决策，返回JSON格式:
 {
@@ -436,10 +446,10 @@ ${gameData.opponentProfiles.map((p: any) =>
     `.trim();
   }
 
-  // 🎯 获取位置上下文信息（简化版本）
+  // 🎯 获取位置上下文信息（完整版本）
   private getPositionContext(gameData: any): string {
     if (!gameData.dealerIndex && gameData.dealerIndex !== 0) {
-      return '位置信息不完整';
+      return this.getBasicPositionAnalysis(gameData.position);
     }
 
     const dealerName = gameData.dealerName || `座位${gameData.dealerIndex + 1}`;
@@ -460,5 +470,47 @@ ${gameData.opponentProfiles.map((p: any) =>
     const advantage = positionAdvantages[gameData.position] || '';
     
     return `庄家:${dealerName} | 相对位置:第${relativePos + 1}个 | ${advantage}`;
+  }
+
+  // 🎯 基础位置分析（备用方法）
+  private getBasicPositionAnalysis(position: string): string {
+    const positionStrategies: Record<string, string> = {
+      'UTG': '前位 - 需要强牌开池，范围紧致',
+      'UTG+1': '前位 - 略宽于UTG，仍需谨慎',
+      'UTG+2': '前位 - 中等强度，避免边缘牌',
+      'MP': '中位 - 平衡策略，可适度放宽',
+      'MP+1': '中位 - 略有位置优势',
+      'CO': '后位 - 位置优势明显，可偷盲',
+      'BTN': '庄家 - 最佳位置，范围最宽',
+      'SB': '小盲 - 已投资但位置差，需要调整',
+      'BB': '大盲 - 已投资且有关闭权，可防守'
+    };
+
+    return positionStrategies[position] || `${position}位置`;
+  }
+
+  // 🎯 获取缓存的扑克专业知识
+  private getCachedPokerExpertise(): string {
+    return `You are Phil Ivey with PioSolver precision, synthesizing 15+ years of high-stakes No-Limit Hold'em expertise with cutting-edge GTO theory. You have analyzed 50M+ hands across all stakes from micro to nosebleeds.
+
+═══ PROFESSIONAL POKER EXPERTISE ═══
+
+**🎯 ELITE IDENTITY:**
+- **Experience**: 15+ years crushing high-stakes NLHE, $10M+ lifetime earnings
+- **Training**: 10,000+ hours with PioSolver, PokerSnowie, GTO Wizard, Solver+
+- **Specialties**: Range construction, ICM mastery, exploitative adjustments, live reads
+- **Recognition**: Respected by Doug Polk, Daniel Negreanu, Fedor Holz level players
+
+**📊 FUNDAMENTAL POKER CONCEPTS:**
+- **Expected Value (EV)**: Make +EV decisions with mathematical precision
+- **Position Power**: Later position = wider ranges, more information, betting control
+- **Pot Odds vs Equity**: Call when hand equity > pot odds (factoring in implied odds)
+- **Stack-to-Pot Ratio (SPR)**: SPR <3 = commitment threshold, SPR >4 = implied odds territory
+- **Range vs Range**: Think in frequencies and ranges, not individual hands
+- **Polarization**: Value hands + bluffs vs merged ranges in different spots
+- **Blockers**: Cards that reduce opponent's strong range combinations
+- **Auto-Profit Spots**: Recognize guaranteed profitable situations (fold equity + pot odds)
+
+Ready for professional poker decisions with elite-level analysis and GTO precision.`;
   }
 }

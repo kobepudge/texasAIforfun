@@ -1069,13 +1069,87 @@ export class FastDecisionEngine {
   }
 
   private buildActionSequence(gameState: NewGameState): string {
-    if (!gameState.currentRoundActions || gameState.currentRoundActions.length === 0) {
-      return '游戏开始';
+    // 构建完整的多轮行动历史
+    const rounds = ['preflop', 'flop', 'turn', 'river'];
+    const actionsByRound: string[] = [];
+
+    for (const round of rounds) {
+      if (round === gameState.phase) {
+        // 当前轮次 - 使用currentRoundActions
+        const roundActions = this.getRoundActions(gameState, round);
+        if (roundActions.length > 0) {
+          const roundStr = this.formatRoundActions(round, roundActions);
+          actionsByRound.push(roundStr);
+        }
+        break; // 不需要处理未来轮次
+      } else {
+        // 历史轮次 - 从actionHistory提取
+        const roundActions = this.getRoundActions(gameState, round);
+        if (roundActions.length > 0) {
+          const roundStr = this.formatRoundActions(round, roundActions);
+          actionsByRound.push(roundStr);
+        }
+      }
     }
 
-    return gameState.currentRoundActions
-      .map(action => `${action.playerName}:${action.action}${action.amount ? `(${action.amount})` : ''}`)
-      .join(' → ');
+    return actionsByRound.length > 0 ? actionsByRound.join(' | ') : '游戏开始';
+  }
+
+  // 🎯 获取指定轮次的行动记录
+  private getRoundActions(gameState: NewGameState, round: string): Array<{playerName: string, action: string, amount?: number}> {
+    if (round === gameState.phase) {
+      // 当前轮次
+      const currentActions = gameState.currentRoundActions || [];
+      return currentActions.map(action => ({
+        playerName: action.playerName,
+        action: action.action,
+        amount: action.amount || 0
+      }));
+    }
+    
+    // 历史轮次 - 从actionHistory提取
+    const roundActions = gameState.actionHistory
+      .filter(action => action.phase === round)
+      .map(action => ({
+        playerName: action.playerName,
+        action: action.action,
+        amount: action.amount || 0
+      }));
+    
+    return roundActions;
+  }
+
+  // 🎯 格式化轮次行动显示
+  private formatRoundActions(round: string, actions: Array<{playerName: string, action: string, amount?: number}>): string {
+    const roundName = {
+      'preflop': '翻前',
+      'flop': '翻牌',
+      'turn': '转牌',
+      'river': '河牌'
+    }[round] || round;
+
+    const actionTexts = actions.map(action => {
+      const actionText = this.formatActionText(action.action);
+      return `${action.playerName}:${actionText}${action.amount ? `($${action.amount})` : ''}`;
+    });
+
+    return `${roundName}[${actionTexts.join(' → ')}]`;
+  }
+
+  // 🎯 格式化行动文本为中文
+  private formatActionText(action: string): string {
+    const actionMap: Record<string, string> = {
+      'fold': '弃牌',
+      'call': '跟注',
+      'raise': '加注',
+      'check': '过牌',
+      'bet': '下注',
+      'all-in': '全押',
+      'small_blind': '小盲',
+      'big_blind': '大盲'
+    };
+    
+    return actionMap[action.toLowerCase()] || action;
   }
 
   private buildCurrentRoundActions(gameState: NewGameState): string {
