@@ -216,11 +216,11 @@ function generateGTODecision(hand, position, facing_action, players_behind, stac
   const handTier = getHandTier(hand);
   const positionIndex = POSITIONS[position];
 
-  console.log(`🎯 GTO决策分析: hand=${hand}, position=${position}, facing_action=${facing_action}, handTier=${handTier}`);
+  // console.log(`🎯 GTO决策分析: hand=${hand}, position=${position}, facing_action=${facing_action}, handTier=${handTier}`);
 
   // 🎯 关键修复：面对任何加注类型都使用防守策略
   if (facing_action.includes('raise') || facing_action === '3bet' || facing_action === '4bet' || facing_action === '5bet') {
-    console.log(`🎯 面对加注类型: ${facing_action}, 使用防守策略`);
+    // console.log(`🎯 面对加注类型: ${facing_action}, 使用防守策略`);
     return getDefenseStrategy(hand, handTier, position, facing_action, stack_tier);
   }
 
@@ -236,7 +236,7 @@ function generateGTODecision(hand, position, facing_action, players_behind, stac
 
   // 面对其他复杂行动
   if (facing_action === 'squeeze' || facing_action === 'iso_raise' || facing_action === 'cold_4bet') {
-    console.log(`🎯 面对复杂行动: ${facing_action}, 使用防守策略`);
+    // console.log(`🎯 面对复杂行动: ${facing_action}, 使用防守策略`);
     return getDefenseStrategy(hand, handTier, position, facing_action, stack_tier);
   }
 

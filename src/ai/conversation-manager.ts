@@ -1,20 +1,11 @@
-// 🎯 AI对话状态管理器 - 实现Context Caching的核心
-// import { PokerContextCacheManager } from './poker-context-cache-manager';
+// 🎯 AI对话状态管理器 - 简化版会话式决策
 
-// 🔄 对话状态接口
+// 🔄 简化的对话状态接口
 export interface ConversationState {
   conversationId: string;
-  playerId: string;
   playerName: string;
-  isInitialized: boolean;
-  isActive: boolean;
   messageHistory: ConversationMessage[];
   lastActivity: number;
-  cacheStatus: 'none' | 'warming' | 'ready' | 'expired';
-  tokenCount: {
-    systemTokens: number;
-    totalTokens: number;
-  };
 }
 
 // 📨 对话消息接口
@@ -25,20 +16,18 @@ export interface ConversationMessage {
   tokenCount?: number;
 }
 
-// 🚀 对话管理器
+// 🚀 简化的对话管理器
 export class ConversationManager {
   private conversations: Map<string, ConversationState> = new Map();
-  // private contextCacheManager: PokerContextCacheManager;
   private apiConfig: any;
 
   constructor(apiConfig: any) {
     this.apiConfig = apiConfig;
-    // this.contextCacheManager = new PokerContextCacheManager();
     
     // 启动定期清理过期对话
     this.startCleanupScheduler();
     
-    console.log('🎯 对话管理器初始化完成 - 支持Context Caching + 自动清理');
+    console.log('🎯 对话管理器初始化完成 - 会话式决策系统');
   }
 
   // 🕐 启动定期清理调度器
@@ -51,100 +40,40 @@ export class ConversationManager {
     console.log('🧹 对话清理调度器已启动 (每5分钟清理一次)');
   }
 
-  // 🎯 为AI玩家初始化对话状态（预热缓存）
-  async initializePlayerConversation(playerId: string, playerName: string): Promise<string> {
-    const conversationId = this.generateConversationId(playerId);
+  // 🎯 创建简单的对话会话
+  createConversation(playerName: string): string {
+    const conversationId = this.generateConversationId(playerName);
     
-    console.log(`🔥 开始为AI玩家 ${playerName} 预热对话状态...`);
+    console.log(`🎯 为AI玩家 ${playerName} 创建对话会话: ${conversationId}`);
 
-    // 创建对话状态
+    // 创建简单的对话状态
     const conversation: ConversationState = {
       conversationId,
-      playerId,
       playerName,
-      isInitialized: false,
-      isActive: true,
       messageHistory: [],
-      lastActivity: Date.now(),
-      cacheStatus: 'warming',
-      tokenCount: {
-        systemTokens: 0,
-        totalTokens: 0
-      }
+      lastActivity: Date.now()
     };
 
     this.conversations.set(conversationId, conversation);
-
-    try {
-      // 🔥 发送预热请求建立专业身份缓存
-      await this.warmupConversation(conversation);
-      
-      conversation.isInitialized = true;
-      conversation.cacheStatus = 'ready';
-      
-      console.log(`✅ AI玩家 ${playerName} 对话状态预热完成 (${conversation.tokenCount.systemTokens} system tokens cached)`);
-      
-      return conversationId;
-      
-    } catch (error) {
-      console.error(`❌ AI玩家 ${playerName} 对话预热失败:`, error);
-      conversation.cacheStatus = 'none';
-      throw error;
-    }
+    
+    console.log(`✅ AI玩家 ${playerName} 对话会话创建完成`);
+    
+    return conversationId;
   }
 
-  // 🔥 预热对话 - 建立专业知识缓存
-  private async warmupConversation(conversation: ConversationState): Promise<void> {
-    // 获取完整的专业知识系统提示
-    const systemPrompt = this.getCachedPokerExpertise();
-    
-    // 添加系统消息到对话历史
-    const systemMessage: ConversationMessage = {
-      role: 'system',
-      content: systemPrompt,
-      timestamp: Date.now(),
-      tokenCount: this.estimateTokenCount(systemPrompt)
-    };
-    
-    conversation.messageHistory.push(systemMessage);
-    conversation.tokenCount.systemTokens = systemMessage.tokenCount || 0;
-
-    // 发送确认消息让AI确认专业身份和玩家身份
-    const confirmationMessage = {
-      role: 'user' as const,
-      content: `你现在是Phil Ivey级别的德州扑克专业AI。
+  // 🎯 构建完整的System Prompt（专业知识 + 玩家身份）
+  private buildSystemPrompt(playerName: string): string {
+    const expertise = this.getCachedPokerExpertise();
+    const identity = `
 
 🎯 **重要：你的玩家身份**
-- 你就是 **${conversation.playerName}** 这个玩家本人
+- 你就是 **${playerName}** 这个玩家本人
 - 你不是观察者或顾问，而是直接代表这个玩家做决策
-- 所有决策都是以${conversation.playerName}的身份和利益为出发点
+- 所有决策都是以${playerName}的身份和利益为出发点
 
-请确认你已准备好以${conversation.playerName}的身份提供专业决策。简短回复"Ready for professional poker decisions as ${conversation.playerName}"`
-    };
-
-    conversation.messageHistory.push({
-      ...confirmationMessage,
-      timestamp: Date.now(),
-      tokenCount: this.estimateTokenCount(confirmationMessage.content)
-    });
-
-    // 🚀 发送预热API请求建立缓存
-    const response = await this.makeConversationAPIRequest(conversation, false);
+准备好接收游戏状况并做出最优决策。`;
     
-    // 添加AI响应到历史
-    conversation.messageHistory.push({
-      role: 'assistant',
-      content: response,
-      timestamp: Date.now(),
-      tokenCount: this.estimateTokenCount(response)
-    });
-
-    // 更新token统计
-    conversation.tokenCount.totalTokens = conversation.messageHistory.reduce(
-      (sum, msg) => sum + (msg.tokenCount || 0), 0
-    );
-
-    console.log(`🎯 预热完成: system=${conversation.tokenCount.systemTokens}, total=${conversation.tokenCount.totalTokens} tokens`);
+    return expertise + identity;
   }
 
   // 🎯 在已有对话中做出决策
@@ -158,22 +87,20 @@ export class ConversationManager {
       throw new Error(`对话不存在: ${conversationId}`);
     }
 
-    if (!conversation.isInitialized || conversation.cacheStatus !== 'ready') {
-      throw new Error(`对话未准备好: ${conversationId}, 状态: ${conversation.cacheStatus}`);
-    }
-
-    // 🎯 只发送新的游戏数据（利用缓存）
+    // 🎯 构建完整的决策Prompt（system + game data）
+    const systemPrompt = this.buildSystemPrompt(conversation.playerName);
     const gamePrompt = this.buildGameDecisionPrompt(gameData);
     
-    console.log(`⚡ 发送决策请求到对话 ${conversationId} (利用${conversation.tokenCount.systemTokens} cached tokens)`);
+    // 如果是第一次决策，添加system prompt
+    if (conversation.messageHistory.length === 0) {
+      conversation.messageHistory.push({
+        role: 'system',
+        content: systemPrompt,
+        timestamp: Date.now(),
+        tokenCount: this.estimateTokenCount(systemPrompt)
+      });
+    }
     
-    // 📊 Token使用统计
-    const beforeTokens = conversation.tokenCount.totalTokens;
-    console.log(`📊 Token使用统计(决策前):`);
-    console.log(`   系统缓存: ${conversation.tokenCount.systemTokens} tokens`);
-    console.log(`   对话总量: ${beforeTokens} tokens`);
-    console.log(`   消息数量: ${conversation.messageHistory.length} 条`);
-
     // 添加用户消息
     const userMessage: ConversationMessage = {
       role: 'user',
@@ -185,9 +112,16 @@ export class ConversationManager {
     conversation.messageHistory.push(userMessage);
     conversation.lastActivity = Date.now();
 
+    console.log(`⚡ 发送决策请求到对话 ${conversationId}`);
+
     try {
-      // 🚀 发送决策请求（享受缓存加速）
-      const response = await this.makeConversationAPIRequest(conversation, true);
+      // 🚀 发送API请求
+      const response = await this.makeAPIRequest(
+        conversation.messageHistory.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }))
+      );
       
       // 添加AI响应
       conversation.messageHistory.push({
@@ -196,18 +130,6 @@ export class ConversationManager {
         timestamp: Date.now(),
         tokenCount: this.estimateTokenCount(response)
       });
-
-      // 📊 Token使用统计(决策后)
-      const afterTokens = conversation.messageHistory.reduce(
-        (sum, msg) => sum + (msg.tokenCount || 0), 0
-      );
-      const tokenUsedThisRequest = afterTokens - beforeTokens;
-      
-      console.log(`📊 Token使用统计(决策后):`);
-      console.log(`   本次请求使用: ${tokenUsedThisRequest} tokens`);
-      console.log(`   对话新总量: ${afterTokens} tokens`);
-      console.log(`   缓存节省: ${conversation.tokenCount.systemTokens} tokens`);
-      console.log(`   效率比: ${((conversation.tokenCount.systemTokens / afterTokens) * 100).toFixed(1)}%`);
       
       // 清理历史消息（保持对话窗口）
       this.maintainConversationWindow(conversation);
@@ -220,28 +142,19 @@ export class ConversationManager {
     }
   }
 
-  // 🌐 发起对话API请求
-  private async makeConversationAPIRequest(
-    conversation: ConversationState, 
-    isDecisionRequest: boolean
-  ): Promise<string> {
-    
-    const messages = conversation.messageHistory.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
-
+  // 🌐 简化的API请求方法
+  private async makeAPIRequest(messages: Array<{role: string, content: string}>): Promise<string> {
     const requestBody = {
       model: this.apiConfig.model,
       messages: messages,
-      temperature: isDecisionRequest ? 0.3 : 0.1, // 决策时稍高温度
-      max_tokens: 3000, // 🔧 统一token限制为3000，解决截断问题
+      temperature: 0.3, // 决策适中温度
+      max_tokens: 3000,
       stream: false
     };
 
-    console.log(`🔥 API请求: ${isDecisionRequest ? '决策' : '预热'}, messages=${messages.length}, 预期缓存命中=${conversation.cacheStatus === 'ready'}`);
+    console.log(`🚀 API请求: messages=${messages.length}`);
 
-    const response = await fetch(`${this.apiConfig.baseUrl}/v1/chat/completions`, {
+    const response = await fetch(`${this.apiConfig.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -260,130 +173,260 @@ export class ConversationManager {
       throw new Error('API响应格式错误');
     }
 
-    // 🔍 检查finish_reason，确保响应完整
     const choice = data.choices[0];
     if (choice.finish_reason === 'length') {
-      console.warn('⚠️ API响应因token限制被截断 (finish_reason: length)');
+      console.warn('⚠️ API响应因token限制被截断');
       throw new Error('响应被截断，请增加max_tokens限制');
-    } else if (choice.finish_reason === 'stop') {
-      console.log('✅ API响应正常完成 (finish_reason: stop)');
-    } else {
-      console.warn(`⚠️ 未预期的finish_reason: ${choice.finish_reason}`);
     }
 
     const content = choice.message.content;
     
-    // 🔍 检查内容完整性
     if (!content || content.trim().length === 0) {
       throw new Error('API返回空内容');
-    }
-    
-    // 🔍 检查JSON响应是否被截断（针对决策请求）
-    if (isDecisionRequest && content.includes('reasoning') && !content.includes('}')) {
-      console.warn('⚠️ JSON响应可能被截断，缺少结束括号');
-      throw new Error('JSON响应不完整，可能被截断');
     }
 
     return content;
   }
 
-  // 🏗️ 构建游戏决策提示（只包含新数据）
+  // 🏗️ 构建复杂游戏决策提示（完整详细格式）
   private buildGameDecisionPrompt(gameData: any): string {
-    const formatRealCalculations = (realCalc: any) => {
-      if (!realCalc) return '数学分析数据不可用';
-      return `
-- 有效筹码: ${realCalc.effectiveStack}BB
-- 底池赔率: ${realCalc.potOdds?.odds || 'N/A'} (${realCalc.potOdds?.percentage?.toFixed(1) || 'N/A'}%)
-- SPR: ${realCalc.spr?.spr?.toFixed(1) || 'N/A'} (${realCalc.spr?.category || 'undefined'})
-- 手牌强度: ${realCalc.handStrength?.strength?.toFixed(2) || 'N/A'} (${realCalc.handStrength?.category || 'unknown'})`;
+    // 提取玩家名称
+    const playerName = gameData.playerName || 'Player';
+    
+    // 格式化手牌
+    const formatHoleCards = (cards: string) => {
+      return cards.replace(/spades/g, '♠').replace(/hearts/g, '♥').replace(/diamonds/g, '♦').replace(/clubs/g, '♣');
     };
-
-    const formatOpponentProfiles = (profiles: any[]) => {
-      if (!profiles || profiles.length === 0) return '对手档案数据不可用';
-      return profiles.map((p: any) => 
-        `${p.name || 'Unknown'}(${p.position || 'N/A'}): VPIP${p.vpip || 0}% PFR${p.pfr || 0}% AGG${p.aggression || 0} ${p.tendency || 'unknown'}`
-      ).join('\n');
+    
+    // 格式化公共牌
+    const formatBoard = (board: string) => {
+      if (!board) return '';
+      return board.replace(/spades/g, '♠').replace(/hearts/g, '♥').replace(/diamonds/g, '♦').replace(/clubs/g, '♣');
     };
-
-    // 👤 提取玩家名称(从行动序列中推断或使用conversation信息)
-    const extractPlayerName = (actionSequence: string, conversationPlayerName: string) => {
-      // 从行动序列中查找玩家名称模式
-      const playerMatch = actionSequence.match(/(Goliath-\d+)/g);
-      if (playerMatch && playerMatch.length > 0) {
-        // 查找最后一个玩家名称，通常是最后行动的玩家
-        const lastPlayerInSequence = playerMatch[playerMatch.length - 1];
-        if (conversationPlayerName.includes('Goliath') || conversationPlayerName.startsWith('AI_')) {
-          // 优先使用conversation中的玩家名
-          return conversationPlayerName.replace('AI_', '');
+    
+    // 构建位置分布 - 性能优化版：快速映射所有位置的玩家
+    const buildPositionDistribution = (gameData: any) => {
+      // 🛡️ 防御性编程：确保gameData有效性
+      if (!gameData || typeof gameData !== 'object') {
+        return '位置信息不可用';
+      }
+      
+      const positions = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'CO'];
+      
+      // 🎯 优先使用完整的玩家位置信息 - 性能优化
+      if (gameData.allPlayersPositions && 
+          typeof gameData.allPlayersPositions === 'object' &&
+          Object.keys(gameData.allPlayersPositions).length > 0) {
+        
+        // 性能优化：预分配数组避免重复字符串操作
+        const distributionParts: string[] = new Array(positions.length);
+        
+        for (let i = 0; i < positions.length; i++) {
+          const pos = positions[i];
+          const playerName_local = gameData.allPlayersPositions[pos];
+          if (playerName_local && typeof playerName_local === 'string' && playerName_local.trim() !== '') {
+            // 如果是当前玩家，添加标记
+            const isCurrentPlayer = playerName_local === playerName;
+            distributionParts[i] = `${pos}:${playerName_local}${isCurrentPlayer ? '👤' : ''}`;
+          } else {
+            distributionParts[i] = `${pos}:空位`;
+          }
         }
-        return lastPlayerInSequence;
+        
+        return distributionParts.join(' | ');
       }
-      return conversationPlayerName.replace('AI_', '') || 'Player';
+      
+      // 🔙 回退到原始方法（使用opponentProfiles） - 增强版本
+      const positionPlayerMap: {[key: string]: string} = {};
+      
+      // 🛡️ 防御性编程：添加当前玩家
+      if (gameData.position && typeof gameData.position === 'string') {
+        positionPlayerMap[gameData.position] = playerName + '👤';
+      }
+      
+      // 🛡️ 防御性编程：添加对手信息，确保数据有效性
+      if (gameData.opponentProfiles && Array.isArray(gameData.opponentProfiles)) {
+        gameData.opponentProfiles.forEach((opponent: any) => {
+          // 确保对手数据的完整性和有效性
+          if (opponent && 
+              typeof opponent === 'object' && 
+              opponent.position && 
+              typeof opponent.position === 'string' && 
+              opponent.name && 
+              typeof opponent.name === 'string' &&
+              opponent.name.trim() !== '') {
+            positionPlayerMap[opponent.position] = opponent.name;
+          }
+        });
+      }
+      
+      // 🛡️ 防御性编程：构建分布字符串，确保位置数组有效
+      const distribution = positions
+        .filter(pos => typeof pos === 'string' && pos.trim() !== '')
+        .map(pos => {
+          const playerInfo = positionPlayerMap[pos];
+          return `${pos}:${playerInfo || '空位'}`;
+        }).join(' | ');
+      
+      return distribution;
     };
     
-    const playerName = extractPlayerName(gameData.actionSequence, conversation.playerName);
-    const seatInfo = `${gameData.positionIndex + 1}号座位`;
-    const totalSeats = 9; // 默认为9人桌
-    
-    // 🎯 阶段说明
-    const getPhaseExplanation = (phase: string, board?: string) => {
-      switch(phase) {
-        case 'preflop': return '翻牌前阶段 - 只看得到你的底牌';
-        case 'flop': return `翻牌阶段 - 前3张公共牌已发出${board ? ': ' + board : ''}`;
-        case 'turn': return `转牌阶段 - 前4张公共牌已发出${board ? ': ' + board : ''}`;
-        case 'river': return `河牌阶段 - 所有5张公共牌已发出${board ? ': ' + board : ''}`;
-        default: return phase;
+    // 构建详细下注历史 - 修复版：正确解析各阶段行动
+    const buildDetailedBettingHistory = (actionSequence: string, phase: string) => {
+      const rounds = {
+        preflop: [] as string[],
+        flop: [] as string[],
+        turn: [] as string[],
+        river: [] as string[]
+      };
+      
+      if (!actionSequence || actionSequence === '游戏开始') {
+        return {
+          preflop: [],
+          flop: [],
+          turn: [],
+          river: [],
+          summary: `Current phase: ${phase}, no actions yet`
+        };
       }
+      
+      // 解析格式：翻前[player1:action → player2:action] | 翻牌[...]
+      const roundSections = actionSequence.split(' | ').map(s => s.trim()).filter(s => s);
+      
+      roundSections.forEach(section => {
+        // 匹配格式：翻前[...] 或 翻牌[...] 等
+        const roundMatch = section.match(/^(翻前|翻牌|转牌|河牌)\[(.*)\]$/);
+        if (roundMatch) {
+          const roundName = roundMatch[1];
+          const actionsStr = roundMatch[2];
+          
+          // 解析行动：player1:action → player2:action
+          if (actionsStr) {
+            const actions = actionsStr.split(' → ').map(a => a.trim()).filter(a => a);
+            
+            // 映射中文轮次名到英文
+            const roundKey = {
+              '翻前': 'preflop',
+              '翻牌': 'flop', 
+              '转牌': 'turn',
+              '河牌': 'river'
+            }[roundName] as keyof typeof rounds;
+            
+            if (roundKey && rounds[roundKey]) {
+              rounds[roundKey] = actions;
+            }
+          }
+        }
+      });
+      
+      const totalActions = Object.values(rounds).flat().length;
+      
+      return {
+        preflop: rounds.preflop,
+        flop: rounds.flop,
+        turn: rounds.turn,
+        river: rounds.river,
+        summary: `Total actions: ${totalActions}, Current phase: ${phase}`
+      };
     };
     
-    // 🃏 行动序列说明
-    const getActionSequenceExplanation = (phase: string) => {
-      if (phase === 'preflop') {
-        return '翻牍前的完整行动记录';
-      } else {
-        return `${phase}阶段开始，按照位置顺序轮流行动（小盲位先行动）`;
+    // 构建对手信息
+    const buildOpponents = (profiles: any[]) => {
+      return profiles.filter(p => p.name !== playerName).map(opponent => ({
+        name: opponent.name,
+        position: opponent.position,
+        chips: opponent.chips || 50000,
+        isActive: true,
+        stackBB: Math.round((opponent.chips || 50000) / 100)
+      }));
+    };
+    
+    // 构建牌面分析
+    const buildBoardAnalysis = (board: string, phase: string) => {
+      if (!board || phase === 'preflop') {
+        return {
+          texture: 'preflop',
+          drawPossible: false,
+          pairedBoard: false
+        };
+      }
+      
+      const cards = board.split(' ');
+      const suits = cards.map(card => card.slice(-1));
+      const ranks = cards.map(card => card.slice(0, -1));
+      
+      // 简单的牌面分析
+      const flushPossible = suits.some(suit => suits.filter(s => s === suit).length >= 2);
+      const paired = ranks.some(rank => ranks.filter(r => r === rank).length >= 2);
+      
+      return {
+        texture: flushPossible ? 'wet' : 'dry',
+        drawPossible: flushPossible,
+        pairedBoard: paired
+      };
+    };
+
+    const bettingHistory = buildDetailedBettingHistory(gameData.actionSequence || '', gameData.phase);
+    const opponents = buildOpponents(gameData.opponentProfiles || []);
+    const boardAnalysis = buildBoardAnalysis(gameData.board, gameData.phase);
+    
+    // 构建完整的游戏状态JSON
+    const completeGameData = {
+      gameState: {
+        phase: gameData.phase,
+        pot: gameData.pot,
+        currentBet: gameData.currentBet || 0,
+        bigBlind: 100,
+        board: gameData.board ? gameData.board.split(' ') : [],
+        myPosition: gameData.position,
+        myChips: gameData.myChips,
+        myCards: gameData.holeCards ? gameData.holeCards.split(' ') : [],
+        toCall: gameData.toCall,
+        potOdds: gameData.toCall > 0 ? `${(gameData.pot / gameData.toCall).toFixed(1)}:1` : 'N/A',
+        stackToPotRatio: gameData.pot > 0 ? `${(gameData.myChips / gameData.pot).toFixed(1)}:1` : 'N/A'
+      },
+      detailedBettingHistory: bettingHistory,
+      currentRoundSummary: `${gameData.phase} phase started, ${gameData.toCall === 0 ? 'no betting yet' : 'betting in progress'}`,
+      opponents: opponents,
+      boardAnalysis: boardAnalysis,
+      gameFormat: {
+        blinds: '50/100',
+        tableSize: 9,
+        gameType: 'cash',
+        effectiveStacks: Math.min(...opponents.map(o => o.chips), gameData.myChips)
       }
     };
 
-    return `🎯 **你的决策时刻到了！**
+    return `=== COMPLEX POKER DECISION ===
+YOUR HAND: ${formatHoleCards(gameData.holeCards || 'Unknown Unknown')}
+BOARD: ${formatBoard(gameData.board || '')}
+POSITION: ${gameData.position} | 座位 ${gameData.positionIndex + 1}/9 | 庄家: ${gameData.dealerInfo || 'BTN位置'} | 相对位置: 第${gameData.positionIndex + 1}个行动 | ${gameData.position === 'BB' ? '大盲(已投资盲注)' : gameData.position === 'SB' ? '小盲(已投资盲注)' : '普通位置'}
+位置分布: ${buildPositionDistribution(gameData)}
+CHIPS: ${gameData.myChips} | POT: ${gameData.pot} | TO CALL: ${gameData.toCall}
 
-👤 **你的身份确认**:
-- 你就是 **${playerName}** 这个玩家
-- 你坐在 **${seatInfo}** (共${totalSeats}人桌)
-- 位置名称: **${gameData.position}**
-- 位置优劣: ${this.getPositionContext(gameData)}
+COMPLETE GAME DATA:
+${JSON.stringify(completeGameData, null, 2)}
 
-🃏 **当前游戏状态**:
-- **手牌**: ${gameData.holeCards} (你的私人底牌)
-- **阶段**: ${getPhaseExplanation(gameData.phase, gameData.board)}
-- **底池**: $${gameData.pot.toLocaleString()}
-- **你的筹码**: $${gameData.myChips.toLocaleString()}
-- **需要跟注**: $${gameData.toCall.toLocaleString()} ${gameData.toCall === 0 ? '(可以免费看牌)' : ''}
+ANALYZE: Hand strength, position, pot odds, opponent ranges, board texture
+RESPOND ONLY: {"action":"fold/check/call/raise/all-in","amount":number,"confidence":0.8}`;
+  }
 
-🎯 **行动序列说明**:
-${getActionSequenceExplanation(gameData.phase)}
-**具体记录**: ${gameData.actionSequence}
-${gameData.phase !== 'preflop' ? `
-⚠️ **注意**: 现在是${gameData.phase}阶段，你需要基于公共牌和你的手牌做决策` : ''}
-
-${gameData.board ? `🃏 **公共牌**: ${gameData.board}
-这些是所有玩家都能看到的牌，结合你的手牌构成最强组合
-` : ''}
-${gameData.realCalculations ? `
-📊 **数学分析**:${formatRealCalculations(gameData.realCalculations)}
-` : ''}
-👥 **对手档案**:
-${formatOpponentProfiles(gameData.opponentProfiles)}
-
-🤖 **你的任务**: 作为${playerName}，请基于以上信息做出最优决策。
-
-请返回JSON格式的决策:
-{
-  "action": "fold/call/raise/all-in",
-  "amount": 数字,
-  "confidence": 0.85,
-  "reasoning": "简洁的专业分析"
-}`;
+  // 🔧 获取位置上下文说明
+  private getPositionContext(gameData: any): string {
+    const position = gameData.position;
+    const contextMap: Record<string, string> = {
+      'BTN': '按钮位置，最有利位置，最后行动',
+      'CO': '劫持位，仅次于按钮的好位置',
+      'MP': '中间位置，需要谨慎选择手牌',
+      'MP+1': '中间位置后期，稍好于早期位置',
+      'UTG': '枪口位，最不利位置，需要最强手牌',
+      'UTG+1': '枪口位后，仍需谨慎',
+      'UTG+2': '早期位置，需要较强手牌',
+      'SB': '小盲位，翻前不利但翻后有位置优势',
+      'BB': '大盲位，翻前有选择权但翻后位置不利'
+    };
+    
+    return contextMap[position] || '位置信息未知';
   }
 
   // 🧹 维护对话窗口（防止token过多）
@@ -437,221 +480,29 @@ ${formatOpponentProfiles(gameData.opponentProfiles)}
     }
   }
 
-  // 🔄 恢复失效的对话状态
-  async recoverConversation(conversationId: string): Promise<boolean> {
+  // 🧹 清理一局结束后的对话历史（保留会话ID）
+  clearGameHistory(conversationId: string): void {
     const conversation = this.conversations.get(conversationId);
-    
-    if (!conversation) {
-      console.warn(`⚠️ 对话不存在，无法恢复: ${conversationId}`);
-      return false;
-    }
-
-    try {
-      console.log(`🔄 尝试恢复对话: ${conversationId}`);
-      
-      // 重新预热对话
-      await this.warmupConversation(conversation);
-      
-      conversation.cacheStatus = 'ready';
-      conversation.isActive = true;
+    if (conversation) {
+      conversation.messageHistory = [];
       conversation.lastActivity = Date.now();
-      
-      console.log(`✅ 对话恢复成功: ${conversationId}`);
-      return true;
-      
-    } catch (error) {
-      console.error(`❌ 对话恢复失败 ${conversationId}:`, error);
-      conversation.cacheStatus = 'expired';
-      return false;
+      console.log(`🧹 清理对话历史: ${conversationId}`);
     }
   }
 
-  // 🏥 对话健康检查
-  async healthCheckConversation(conversationId: string): Promise<boolean> {
-    const conversation = this.conversations.get(conversationId);
-    
-    if (!conversation) {
-      return false;
-    }
-
-    // 检查对话是否就绪
-    if (conversation.cacheStatus !== 'ready' || !conversation.isInitialized) {
-      console.log(`🏥 对话${conversationId}需要恢复，状态: ${conversation.cacheStatus}`);
-      return await this.recoverConversation(conversationId);
-    }
-
-    // 检查活动时间
-    const inactiveTime = Date.now() - conversation.lastActivity;
-    if (inactiveTime > 30 * 60 * 1000) { // 30分钟无活动
-      console.log(`🏥 对话${conversationId}长时间无活动 (${Math.round(inactiveTime / 60000)}分钟)，标记为需要检查`);
-      conversation.cacheStatus = 'expired';
-      return false;
-    }
-
-    return true;
-  }
-
-  // 🎯 智能决策（带健康检查）
-  async makeSmartDecisionInConversation(
-    conversationId: string, 
-    gameData: any
-  ): Promise<string> {
-    // 先进行健康检查
-    const isHealthy = await this.healthCheckConversation(conversationId);
-    
-    if (!isHealthy) {
-      throw new Error(`对话${conversationId}健康检查失败`);
-    }
-
-    // 执行正常决策
-    return await this.makeDecisionInConversation(conversationId, gameData);
-  }
-
-  // 📊 获取详细统计信息
+  // 📊 获取简化统计信息
   getStatistics() {
     const conversations = Array.from(this.conversations.values());
-    const now = Date.now();
     
     return {
       totalConversations: conversations.length,
-      activeConversations: conversations.filter(c => c.isActive).length,
-      readyConversations: conversations.filter(c => c.cacheStatus === 'ready').length,
-      expiredConversations: conversations.filter(c => c.cacheStatus === 'expired').length,
-      warmingConversations: conversations.filter(c => c.cacheStatus === 'warming').length,
-      totalSystemTokens: conversations.reduce((sum, c) => sum + c.tokenCount.systemTokens, 0),
-      averageTokensPerConversation: conversations.length > 0 
-        ? Math.round(conversations.reduce((sum, c) => sum + c.tokenCount.totalTokens, 0) / conversations.length)
-        : 0,
       averageMessagesPerConversation: conversations.length > 0
         ? Math.round(conversations.reduce((sum, c) => sum + c.messageHistory.length, 0) / conversations.length)
-        : 0,
-      oldestConversation: conversations.length > 0
-        ? Math.round((now - Math.min(...conversations.map(c => c.lastActivity))) / 60000)
-        : 0, // 分钟
-      healthyConversations: conversations.filter(c => 
-        c.cacheStatus === 'ready' && c.isActive && (now - c.lastActivity) < 30 * 60 * 1000
-      ).length
+        : 0
     };
   }
 
-  // 🎯 获取对话状态摘要（用于调试）
-  getConversationSummary(): string {
-    const stats = this.getStatistics();
-    
-    return `
-📊 对话管理器状态摘要:
-🎯 总对话数: ${stats.totalConversations}
-✅ 健康对话: ${stats.healthyConversations}
-🔥 就绪对话: ${stats.readyConversations}
-⚠️ 过期对话: ${stats.expiredConversations}
-🔄 预热中: ${stats.warmingConversations}
-💾 系统tokens: ${stats.totalSystemTokens}
-📨 平均消息数: ${stats.averageMessagesPerConversation}
-⏰ 最老对话: ${stats.oldestConversation}分钟前
-    `.trim();
-  }
-
-  // 🎯 获取位置上下文信息（完整版本）
-  private getPositionContext(gameData: any): string {
-    if (!gameData.dealerIndex && gameData.dealerIndex !== 0) {
-      return this.getBasicPositionAnalysis(gameData.position);
-    }
-
-    const dealerName = gameData.dealerName || `座位${gameData.dealerIndex + 1}`;
-    const relativePos = (gameData.positionIndex - gameData.dealerIndex + 9) % 9;
-    
-    const positionAdvantages: Record<string, string> = {
-      'BTN': '最佳位置(庄家)',
-      'CO': '后位优势',
-      'MP': '中位',
-      'MP+1': '中位',
-      'UTG': '前位需谨慎',
-      'UTG+1': '前位',
-      'UTG+2': '前位',
-      'SB': '小盲(位置差)',
-      'BB': '大盲(已投资)'
-    };
-
-    const advantage = positionAdvantages[gameData.position] || '';
-    
-    return `庄家:${dealerName} | 相对位置:第${relativePos + 1}个 | ${advantage}`;
-  }
-
-  // 🎯 基础位置分析（备用方法）
-  private getBasicPositionAnalysis(position: string): string {
-    const positionStrategies: Record<string, string> = {
-      'UTG': '前位 - 需要强牌开池，范围紧致',
-      'UTG+1': '前位 - 略宽于UTG，仍需谨慎',
-      'UTG+2': '前位 - 中等强度，避免边缘牌',
-      'MP': '中位 - 平衡策略，可适度放宽',
-      'MP+1': '中位 - 略有位置优势',
-      'CO': '后位 - 位置优势明显，可偷盲',
-      'BTN': '庄家 - 最佳位置，范围最宽',
-      'SB': '小盲 - 已投资但位置差，需要调整',
-      'BB': '大盲 - 已投资且有关闭权，可防守'
-    };
-
-    return positionStrategies[position] || `${position}位置`;
-  }
-
-  // 🔄 更新玩家位置和筹码信息(局间更新)
-  async updatePlayerGameStatus(
-    conversationId: string, 
-    position: string, 
-    seatIndex: number,
-    totalSeats: number,
-    chips: number,
-    dealerPosition?: string
-  ): Promise<void> {
-    const conversation = this.conversations.get(conversationId);
-    if (!conversation) {
-      throw new Error(`对话不存在: ${conversationId}`);
-    }
-
-    const updateMessage = {
-      role: 'user' as const,
-      content: `🔄 **游戏状态更新** (新一局开始)
-
-🎯 **你的现在状态** (作为${conversation.playerName}):
-- **位置**: ${position} (第${seatIndex + 1}个座位 / 共${totalSeats}个座位)
-- **筹码**: $${chips.toLocaleString()}
-- **座位说明**: 你坐在${totalSeats}人桌的${seatIndex + 1}号位置
-${dealerPosition ? `- **庄家位置**: ${dealerPosition}` : ''}
-
-请记住这些信息，准备为接下来的决策做准备。简短确认"Status updated, ready for decisions"`
-    };
-
-    // 添加状态更新消息
-    conversation.messageHistory.push({
-      ...updateMessage,
-      timestamp: Date.now(),
-      tokenCount: this.estimateTokenCount(updateMessage.content)
-    });
-
-    try {
-      // 发送状态更新请求
-      const response = await this.makeConversationAPIRequest(conversation, false);
-      
-      // 添加AI响应
-      conversation.messageHistory.push({
-        role: 'assistant',
-        content: response,
-        timestamp: Date.now(),
-        tokenCount: this.estimateTokenCount(response)
-      });
-
-      // 更新活动时间
-      conversation.lastActivity = Date.now();
-      
-      console.log(`✅ 玩家${conversation.playerName}状态更新成功: ${position}, $${chips.toLocaleString()}`);
-      
-    } catch (error) {
-      console.error(`❌ 玩家状态更新失败 ${conversationId}:`, error);
-      throw error;
-    }
-  }
-
-  // 🎯 获取缓存的扑克专业知识
+  // 🎯 获取扑克专业知识
   private getCachedPokerExpertise(): string {
     return `You are Phil Ivey with PioSolver precision, synthesizing 15+ years of high-stakes No-Limit Hold'em expertise with cutting-edge GTO theory. You have analyzed 50M+ hands across all stakes from micro to nosebleeds.
 

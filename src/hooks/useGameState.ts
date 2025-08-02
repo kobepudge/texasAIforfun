@@ -85,7 +85,8 @@ export function useAIConfig() {
     baseUrl: localStorage.getItem('poker_ai_base_url') || DEFAULT_AI_CONFIG.baseUrl,
     model: localStorage.getItem('poker_ai_model') || DEFAULT_AI_CONFIG.model,
     enabled: localStorage.getItem('poker_ai_enabled') === 'true',
-    customModels: JSON.parse(localStorage.getItem('poker_ai_custom_models') || '[]')
+    customModels: JSON.parse(localStorage.getItem('poker_ai_custom_models') || '[]'),
+    enablePreflopGTO: localStorage.getItem('poker_ai_enable_preflop_gto') !== 'false' // 默认启用
   }));
 
   const [aiStats, setAiStats] = useState({
@@ -103,6 +104,7 @@ export function useAIConfig() {
     localStorage.setItem('poker_ai_enabled', config.enabled.toString());
     localStorage.setItem('poker_ai_model', config.model);
     localStorage.setItem('poker_ai_custom_models', JSON.stringify(config.customModels));
+    localStorage.setItem('poker_ai_enable_preflop_gto', config.enablePreflopGTO.toString()); // 🎯 保存GTO设置
     
     // 重置AI统计当配置改变时
     if (config.enabled !== aiConfig.enabled || config.model !== aiConfig.model) {

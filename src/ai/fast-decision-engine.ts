@@ -41,6 +41,10 @@ export interface GameData {
   // 时间信息
   timeLimit: number;
   phase: string;
+  
+  // 🎯 新增字段
+  dealerInfo?: string; // 庄家信息
+  playerName?: string; // 当前玩家名称
 }
 
 export interface OpponentProfileSummary {
@@ -84,8 +88,14 @@ export class FastDecisionEngine {
   
   // 🎯 玩家对话状态映射
   private playerConversations: Map<string, string> = new Map(); // playerId -> conversationId
+  
+  // 🎯 AI配置引用（用于GTO控制）
+  private aiConfig: any;
 
   constructor(apiConfig: any) {
+    // 🎯 保存AI配置用于GTO控制
+    this.aiConfig = apiConfig;
+    
     const poolConfig = {
       apiKey: apiConfig.apiKey,
       baseUrl: apiConfig.baseUrl,
@@ -109,42 +119,31 @@ export class FastDecisionEngine {
     console.log('⚡ 快速决策引擎V3.0初始化完成 (Context Caching + 对话状态管理)');
   }
 
-  // 🔥 AI玩家预热 - 建立Context Caching对话状态
-  async warmupAIPlayer(playerId: string, playerName: string): Promise<void> {
-    try {
-      console.log(`🔥 开始预热AI玩家: ${playerName} (${playerId})`);
-      
-      const conversationId = await this.conversationManager.initializePlayerConversation(playerId, playerName);
-      this.playerConversations.set(playerId, conversationId);
-      
-      console.log(`✅ AI玩家${playerName}预热完成，对话ID: ${conversationId}`);
-      
-    } catch (error) {
-      console.error(`❌ AI玩家${playerName}预热失败:`, error);
-      throw error;
-    }
+  // 🎯 创建简单的会话映射
+  createPlayerConversation(playerId: string, playerName: string): string {
+    console.log(`🎯 为AI玩家 ${playerName} 创建会话`);
+    
+    const conversationId = this.conversationManager.createConversation(playerName);
+    this.playerConversations.set(playerId, conversationId);
+    
+    console.log(`✅ AI玩家${playerName}会话创建完成: ${conversationId}`);
+    
+    return conversationId;
   }
 
-  // 🎯 并发预热多个AI玩家
-  async warmupMultipleAIPlayers(players: Array<{id: string, name: string}>): Promise<void> {
-    console.log(`🚀 开始并发预热${players.length}个AI玩家...`);
+  // 🎯 批量创建玩家会话
+  createMultiplePlayerConversations(players: Array<{id: string, name: string}>): void {
+    console.log(`🚀 为${players.length}个AI玩家创建会话...`);
     
-    const warmupPromises = players.map(player => 
-      this.warmupAIPlayer(player.id, player.name)
-    );
+    players.forEach(player => {
+      this.createPlayerConversation(player.id, player.name);
+    });
     
-    try {
-      await Promise.all(warmupPromises);
-      console.log(`✅ 所有${players.length}个AI玩家预热完成`);
-      
-      // 输出统计信息
-      const stats = this.conversationManager.getStatistics();
-      console.log(`📊 对话状态统计:`, stats);
-      
-    } catch (error) {
-      console.error('❌ 批量AI预热失败:', error);
-      throw error;
-    }
+    console.log(`✅ 所有${players.length}个AI玩家会话创建完成`);
+    
+    // 输出统计信息
+    const stats = this.conversationManager.getStatistics();
+    console.log(`📊 对话状态统计:`, stats);
   }
 
   // 🚀 新的Ultra-Fast决策入口 - Context Caching优化
@@ -180,28 +179,29 @@ export class FastDecisionEngine {
       console.log('🧠 使用对话状态Context Caching专业决策系统');
       console.log(`📊 决策路径追踪: Ultra-Fast → Context Caching → 玩家${playerId}`);
       
-      // Step 1: 获取或恢复玩家的对话ID
+      // Step 1: 获取或创建玩家的对话ID
       let conversationId = this.playerConversations.get(playerId);
       if (!conversationId) {
-        console.warn(`⚠️ 玩家${playerId}没有预热对话，尝试立即初始化...`);
+        console.log(`🎯 玩家${playerId}没有会话，立即创建...`);
         
-        try {
-          // 🔥 立即为该玩家初始化对话状态
-          const playerName = `AI_${playerId}`;
-          conversationId = await this.conversationManager.initializePlayerConversation(playerId, playerName);
-          this.playerConversations.set(playerId, conversationId);
-          console.log(`✅ 紧急初始化对话成功: ${conversationId}`);
-        } catch (initError) {
-          console.error(`❌ 紧急初始化对话失败:`, initError);
-          console.warn(`⚠️ 最终回退到传统方式`);
-          return await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
-        }
+        // 获取玩家名称
+        const player = gameState.players.find(p => p.id === playerId);
+        const playerName = player?.name || `AI_${playerId}`;
+        
+        // 立即创建会话
+        conversationId = this.createPlayerConversation(playerId, playerName);
+        console.log(`✅ 会话创建成功: ${conversationId}`);
       }
       
       // Step 2: 构建游戏数据并进行真实计算
       const gameData = this.buildEnhancedGameData(gameState, playerId, holeCards, opponentProfiles);
       
-      console.log(`🎯 使用预热对话 ${conversationId} 进行决策 (享受Context Caching加速)`);
+      console.log(`🎯 使用会话 ${conversationId} 进行决策`);
+      
+      // 获取玩家名称并添加到游戏数据中
+      const player = gameState.players.find(p => p.id === playerId);
+      const playerName = player?.name || `AI_${playerId}`;
+      gameData.playerName = playerName; // 添加玩家名称到游戏数据
       
       // 📊 记录决策路径和数据统计
       console.log(`📊 游戏数据统计:`);
@@ -212,7 +212,7 @@ export class FastDecisionEngine {
       console.log(`   需跟注: ${gameData.toCall}`);
       console.log(`   手牌: ${gameData.holeCards}`);
 
-      // Step 3: 在对话中进行决策（利用缓存）
+      // Step 3: 在对话中进行决策
       const aiResponse = await this.conversationManager.makeDecisionInConversation(conversationId, gameData);
       
       // Step 4: 解析AI响应
@@ -227,7 +227,7 @@ export class FastDecisionEngine {
       // 📊 记录详细决策统计
       console.log(`📊 决策统计报告:`);
       console.log(`   决策路径: Ultra-Fast → Context Caching`);
-      console.log(`   对话状态: 正常使用预热缓存`);
+      console.log(`   对话状态: 会话式决策`);
       console.log(`   响应时间: ${totalTime}ms`);
       console.log(`   决策结果: ${decision.action} ${decision.amount || ''}`);
       console.log(`   置信度: ${(decision.confidence * 100).toFixed(1)}%`);
@@ -236,41 +236,21 @@ export class FastDecisionEngine {
       return decision;
 
     } catch (error) {
-      console.error('❌ Ultra-Fast决策失败:', error);
+      console.error('❌ 会话式决策失败:', error);
       
-      // 🔗 尝试恢复对话然后再次尝试
-      const conversationId = this.playerConversations.get(playerId);
-      if (conversationId) {
-        try {
-          console.log(`🔄 尝试恢复对话: ${conversationId}`);
-          const isHealthy = await this.conversationManager.healthCheckConversation(conversationId);
-          if (isHealthy) {
-            console.log(`✅ 对话恢复成功，重试决策`);
-            const gameData = this.buildEnhancedGameData(gameState, playerId, holeCards, opponentProfiles);
-            const aiResponse = await this.conversationManager.makeSmartDecisionInConversation(conversationId, gameData);
-            const decision = this.parseConversationResponse(aiResponse);
-            console.log(`✅ 恢复后决策成功: ${decision.action}`);
-            return decision;
-          }
-        } catch (recoveryError) {
-          console.warn(`⚠️ 对话恢复失败:`, recoveryError);
-        }
-      }
+      // 🚨 不再回退到传统方式，直接返回安全的默认决策
+      console.warn(`⚠️ 对话决策失败，返回安全决策`);
       
-      console.warn(`⚠️ 最终回退到传统方式`);
-      console.log(`📊 决策路径追踪: Ultra-Fast → Context Caching → 传统回退 → 玩家${playerId}`);
+      const safeDecision = this.getEmergencyDecision(gameState, holeCards);
+      const totalTime = Date.now() - startTime;
       
-      const fallbackStartTime = Date.now();
-      const fallbackDecision = await this.makeDecision(gameState, playerId, holeCards, opponentProfiles, timeLimit);
-      const fallbackTime = Date.now() - fallbackStartTime;
+      console.log(`📊 安全决策统计:`);
+      console.log(`   决策路径: 会话式决策失败 → 安全决策`);
+      console.log(`   失败原因: ${error.message}`);
+      console.log(`   响应时间: ${totalTime}ms`);
+      console.log(`   安全决策: ${safeDecision.action} ${safeDecision.amount || ''}`);
       
-      console.log(`📊 传统回退决策统计:`);
-      console.log(`   决策路径: Ultra-Fast → 传统回退`);
-      console.log(`   回退原因: Context Caching失败`);
-      console.log(`   响应时间: ${fallbackTime}ms`);
-      console.log(`   决策结果: ${fallbackDecision.action} ${fallbackDecision.amount || ''}`);
-      
-      return fallbackDecision;
+      return safeDecision;
     }
   }
 
@@ -285,9 +265,9 @@ export class FastDecisionEngine {
     const startTime = Date.now();
 
     try {
-      // 🚀 翻前优先使用GTO查表 (0ms决策)
-      if (gameState.phase === 'preflop') {
-        console.log('⚡ 翻前阶段，使用GTO查表决策');
+      // 🎯 翻前GTO策略控制 - 根据用户配置决定是否使用GTO
+      if (gameState.phase === 'preflop' && this.aiConfig.enablePreflopGTO !== false) {
+        console.log('⚡ 翻前阶段，GTO策略已启用，使用GTO查表决策');
 
         try {
           const gtoDecision = await this.getGTOPreflopDecision(gameState, playerId, holeCards);
@@ -299,6 +279,8 @@ export class FastDecisionEngine {
         } catch (gtoError) {
           console.warn('⚠️ GTO决策失败，回退到AI决策:', gtoError);
         }
+      } else if (gameState.phase === 'preflop') {
+        console.log('🧠 翻前阶段，GTO策略已禁用，使用AI智能分析');
       }
 
       // 🔥 GTO失败后使用AI决策系统 (备用方案)
@@ -326,7 +308,7 @@ export class FastDecisionEngine {
     }
   }
 
-  // 🏗️ 构建游戏数据
+  // 🏗️ 构建游戏数据 - 性能监控版
   private buildGameData(
     gameState: NewGameState,
     playerId: string,
@@ -334,29 +316,47 @@ export class FastDecisionEngine {
     opponentProfiles: Map<string, OpponentProfile>,
     timeLimit: number
   ): GameData {
+    const buildStartTime = performance.now();
     const player = gameState.players.find(p => p.id === playerId);
     if (!player) throw new Error('玩家不存在');
 
     const position = this.getPlayerPosition(gameState, playerId);
     const positionIndex = gameState.players.findIndex(p => p.id === playerId);
 
-    // 构建对手档案摘要
+    // 构建对手档案摘要 - 包含所有玩家信息（即使没有profile）
     const opponentSummaries: OpponentProfileSummary[] = [];
     gameState.players.forEach(p => {
-      if (p.id !== playerId) {
+      if (p.id !== playerId && p.isActive) {
         const profile = opponentProfiles.get(p.id);
-        if (profile) {
-          opponentSummaries.push({
-            name: p.name,
-            position: this.getPlayerPosition(gameState, p.id),
-            vpip: profile.vpip,
-            pfr: profile.pfr,
-            aggression: profile.aggression,
-            tendency: profile.tendency
-          });
-        }
+        opponentSummaries.push({
+          name: p.name,
+          position: this.getPlayerPosition(gameState, p.id),
+          vpip: profile?.vpip || 25,
+          pfr: profile?.pfr || 15,
+          aggression: profile?.aggression || 1.0,
+          tendency: profile?.tendency || 'balanced'
+        });
       }
     });
+
+    // 🎯 构建完整的玩家位置信息（包含所有玩家）- 性能优化版
+    const allPlayersPositions: {[position: string]: string} = {};
+    // 性能优化：避免重复计算，预计算位置信息
+    const dealerIndex = gameState.dealerIndex;
+    const totalPlayers = gameState.players.length;
+    const positions = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'CO'];
+    
+    for (let i = 0; i < gameState.players.length; i++) {
+      const p = gameState.players[i];
+      // 直接计算位置而不是调用getPlayerPosition（避免重复计算）
+      const positionIndex = (i - dealerIndex + totalPlayers) % totalPlayers;
+      const playerPosition = positions[positionIndex] || `POS${positionIndex}`;
+      allPlayersPositions[playerPosition] = p.name;
+    }
+
+    // 构建庄家信息
+    const dealerPlayer = gameState.players[gameState.dealerIndex];
+    const dealerInfo = dealerPlayer ? `${dealerPlayer.name}(BTN)` : 'BTN位置';
 
     // 构建行动序列
     const actionSequence = this.buildActionSequence(gameState);
@@ -365,7 +365,7 @@ export class FastDecisionEngine {
     const toCall = Math.max(0, gameState.currentBet - (player.currentBet || 0));
     const potOdds = toCall > 0 ? `${(gameState.pot / toCall).toFixed(1)}:1` : 'N/A';
 
-    return {
+    const result = {
       position,
       positionIndex,
       holeCards: this.formatCards(holeCards),
@@ -377,9 +377,12 @@ export class FastDecisionEngine {
       totalPlayers: gameState.players.length,
       actionSequence,
       opponentProfiles: opponentSummaries,
+      allPlayersPositions, // 🎯 添加完整的玩家位置信息
       potOdds,
       timeLimit,
       phase: gameState.phase,
+      dealerInfo, // 🎯 添加庄家信息
+      playerName: player.name, // 🎯 添加当前玩家名称
 
       // 翻牌后信息
       ...(gameState.phase !== 'preflop' && {
@@ -390,6 +393,14 @@ export class FastDecisionEngine {
         recentOpponentBehavior: this.buildOpponentBehaviorSummary(opponentProfiles)
       })
     };
+
+    // 📊 性能监控：记录数据构建时间
+    const buildTime = performance.now() - buildStartTime;
+    if (buildTime > 3) { // 只记录超过3ms的构建时间
+      console.log(`⚡ buildGameData性能: ${buildTime.toFixed(2)}ms (players: ${gameState.players.length}, profiles: ${opponentProfiles.size})`);
+    }
+
+    return result;
   }
 
   // 🎯 执行分层决策
@@ -1414,13 +1425,14 @@ export class FastDecisionEngine {
     return 'poor';
   }
 
-  // 🔥 构建增强游戏数据（使用真实计算）
+  // 🔥 构建增强游戏数据（使用真实计算）- 性能监控版
   private buildEnhancedGameData(
     gameState: NewGameState,
     playerId: string,
     holeCards: Card[],
     opponentProfiles: Map<string, OpponentProfile>
   ): any {
+    const buildStartTime = performance.now();
     const player = gameState.players.find(p => p.id === playerId);
     if (!player) throw new Error('玩家未找到');
 
@@ -1436,20 +1448,42 @@ export class FastDecisionEngine {
     const sprResult = this.pokerMath.calculateSPR(effectiveStack, gameState.pot);
     const handStrengthResult = this.pokerMath.calculateHandStrength(holeCards, gameState.communityCards);
 
-    // 构建对手档案
+    // 🎯 构建完整的玩家位置信息（包含所有玩家）- 性能优化版
+    const allPlayersPositions: {[position: string]: string} = {};
+    // 性能优化：避免重复计算，预计算位置信息
+    const dealerIndex = gameState.dealerIndex;
+    const totalPlayers = gameState.players.length;
+    const positions = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'CO'];
+    
+    for (let i = 0; i < gameState.players.length; i++) {
+      const p = gameState.players[i];
+      // 直接计算位置而不是调用getPlayerPosition（避免重复计算）
+      const positionIndex = (i - dealerIndex + totalPlayers) % totalPlayers;
+      const playerPosition = positions[positionIndex] || `POS${positionIndex}`;
+      allPlayersPositions[playerPosition] = p.name;
+    }
+
+    // 构建对手档案 - 性能优化版
     const profiles = Array.from(opponentProfiles.values())
       .filter(profile => profile.playerId !== playerId)
-      .map(profile => ({
-        name: profile.playerName,
-        position: this.getPlayerPosition(gameState, profile.playerId),
-        vpip: profile.vpip || 25,
-        pfr: profile.pfr || 18,
-        aggression: profile.aggression || 2.0,
-        tendency: this.classifyPlayerTendency(profile),
-        chips: gameState.players.find(p => p.id === profile.playerId)?.chips || 0
-      }));
+      .map(profile => {
+        // 性能优化：直接查找玩家索引和位置信息
+        const playerIndex = gameState.players.findIndex(p => p.id === profile.playerId);
+        const positionIndex = playerIndex >= 0 ? (playerIndex - dealerIndex + totalPlayers) % totalPlayers : 0;
+        const playerPosition = positions[positionIndex] || `POS${positionIndex}`;
+        
+        return {
+          name: profile.playerName,
+          position: playerPosition,
+          vpip: profile.vpip || 25,
+          pfr: profile.pfr || 18,
+          aggression: profile.aggression || 2.0,
+          tendency: this.classifyPlayerTendency(profile),
+          chips: gameState.players.find(p => p.id === profile.playerId)?.chips || 0
+        };
+      });
 
-    return {
+    const result = {
       holeCards: holeCardsStr,
       position: position,
       positionIndex: player.position,
@@ -1460,6 +1494,7 @@ export class FastDecisionEngine {
       phase: gameState.phase,
       actionSequence: this.buildActionSequence(gameState),
       opponentProfiles: profiles,
+      allPlayersPositions, // 🎯 添加完整的玩家位置信息
       
       // 🔥 真实数学计算结果
       realCalculations: {
@@ -1469,6 +1504,14 @@ export class FastDecisionEngine {
         handStrength: handStrengthResult
       }
     };
+
+    // 📊 性能监控：记录数据构建时间
+    const buildTime = performance.now() - buildStartTime;
+    if (buildTime > 5) { // 只记录超过5ms的构建时间
+      console.log(`⚡ buildEnhancedGameData性能: ${buildTime.toFixed(2)}ms (players: ${gameState.players.length}, profiles: ${opponentProfiles.size})`);
+    }
+
+    return result;
   }
 
   // 🚀 使用Context Caching发起API请求
@@ -1641,90 +1684,6 @@ class PerformanceTracker {
 
   getAllMetrics(): Map<string, PlayerMetrics> {
     return new Map(this.playerMetrics);
-  }
-  // 🎯 从响应文本中提取JSON - 多种策略
-  private extractJsonFromResponse(responseText: string): string {
-    // 策略1: 标准JSON匹配
-    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return jsonMatch[0];
-    }
-
-    // 策略2: 更宽松的JSON匹配
-    jsonMatch = responseText.match(/\{[^}]*"action"[^}]*\}/);
-    if (jsonMatch) {
-      return jsonMatch[0];
-    }
-
-    // 策略3: 逐行查找JSON关键字段
-    const lines = responseText.split('\n');
-    const jsonLines: string[] = [];
-    let inJson = false;
-
-    for (const line of lines) {
-      if (line.includes('{') || line.includes('"action"')) {
-        inJson = true;
-      }
-      if (inJson) {
-        jsonLines.push(line);
-      }
-      if (line.includes('}')) {
-        inJson = false;
-        break;
-      }
-    }
-
-    if (jsonLines.length > 0) {
-      return jsonLines.join('\n');
-    }
-
-    throw new Error('响应中未找到有效的JSON格式');
-  }
-
-  // 🔧 修复不完整的JSON
-  private repairIncompleteJson(jsonStr: string): string {
-    console.log('🔧 尝试修复JSON:', jsonStr);
-    
-    let repaired = jsonStr.trim();
-
-    // 修复缺失的开始花括号
-    if (!repaired.startsWith('{')) {
-      repaired = '{' + repaired;
-    }
-
-    // 修复缺失的结束花括号
-    if (!repaired.endsWith('}')) {
-      repaired = repaired + '}';
-    }
-
-    // 修复常见的截断问题
-    // 如果reasoning字段被截断，添加默认结束
-    if (repaired.includes('"reasoning"') && !repaired.match(/"reasoning":\s*"[^"]*"/)) {
-      repaired = repaired.replace(/"reasoning":\s*"[^"]*$/, '"reasoning": "分析中断"');
-    }
-
-    // 修复缺失的逗号
-    repaired = repaired.replace(/"\s*\n\s*"/g, '",\n"');
-    
-    // 修复数字字段的引号问题
-    repaired = repaired.replace(/"(amount|confidence)":\s*"(\d+\.?\d*)"/g, '"$1": $2');
-
-    // 确保必需字段存在
-    if (!repaired.includes('"action"')) {
-      repaired = repaired.replace(/\{/, '{"action": "fold",');
-    }
-    if (!repaired.includes('"amount"')) {
-      repaired = repaired.replace(/\}$/, ', "amount": 0}');
-    }
-    if (!repaired.includes('"confidence"')) {
-      repaired = repaired.replace(/\}$/, ', "confidence": 0.7}');
-    }
-    if (!repaired.includes('"reasoning"')) {
-      repaired = repaired.replace(/\}$/, ', "reasoning": "智能修复"}');
-    }
-
-    console.log('🔧 修复后的JSON:', repaired);
-    return repaired;
   }
 }
 

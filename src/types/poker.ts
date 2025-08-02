@@ -71,6 +71,7 @@ export interface AIConfig {
   model: string;
   enabled: boolean;
   customModels: CustomModel[];
+  enablePreflopGTO: boolean; // 🎯 新增：是否启用翻前GTO策略（默认true）
 }
 
 export interface ActionHistoryItem {

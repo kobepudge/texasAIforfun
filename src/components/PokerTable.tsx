@@ -43,7 +43,7 @@ export function PokerTable() {
   const [showChipManager, setShowChipManager] = useState(false);
   const [showPlayerNotes, setShowPlayerNotes] = useState(false);
 
-  // 🚀 新AI系统引用 - 动态导入
+  // 🚀 AI系统引用 - 动态导入
   const fastDecisionEngineRef = useRef<any | null>(null);
   const aiManagerRef = useRef<any | null>(null);
 
@@ -92,15 +92,15 @@ export function PokerTable() {
 
   // 🚀 移除老的实时AI系统 - 只使用新架构
 
-  // 🚀 强制初始化新AI系统 - 无论配置是否完整
+  // 🚀 初始化AI决策系统 - 简化版
   useEffect(() => {
-    const initializeNewAISystem = async () => {
+    const initializeAISystem = async () => {
       try {
         // 动态导入AI系统
         const { FastDecisionEngine } = await import('../ai/fast-decision-engine.ts');
         const { AIInstanceManager } = await import('../ai/ai-instance-manager.ts');
 
-        console.log('🚀 强制初始化新AI决策系统...');
+        console.log('🚀 初始化AI决策系统...');
 
         // 使用默认配置或用户配置
         const apiConfig = {
@@ -127,41 +127,14 @@ export function PokerTable() {
         // 创建快速决策引擎
         fastDecisionEngineRef.current = new FastDecisionEngine(apiConfig);
 
-        console.log('✅ 新AI系统强制初始化完成');
+        console.log('✅ AI系统初始化完成 - 游戏可立即开始');
         console.log('⚡ 配置:', apiConfig);
-
-        // 🔥 预热所有AI玩家 - 建立Context Caching
-        const warmupAIPlayers = async () => {
-          try {
-            console.log('🚀 开始预热AI玩家...');
-            
-            // 收集所有AI玩家信息
-            const aiPlayers = gameState.players
-              .filter(player => player.isAI)
-              .map(player => ({
-                id: player.id,
-                name: player.name
-              }));
-
-            if (aiPlayers.length > 0) {
-              await fastDecisionEngineRef.current.warmupMultipleAIPlayers(aiPlayers);
-              console.log(`🎯 成功预热了${aiPlayers.length}个AI玩家`);
-            } else {
-              console.log('ℹ️ 没有AI玩家需要预热');
-            }
-          } catch (error) {
-            console.error('❌ AI玩家预热失败:', error);
-          }
-        };
-
-        // 延迟预热，确保AI系统完全初始化
-        setTimeout(warmupAIPlayers, 1000);
       } catch (error) {
-        console.error('❌ 新AI系统初始化失败:', error);
+        console.error('❌ AI系统初始化失败:', error);
       }
     };
 
-    initializeNewAISystem();
+    initializeAISystem();
   }, [aiConfig.openaiApiKey, aiConfig.baseUrl, aiConfig.model]);
 
   // 开始新游戏
@@ -181,8 +154,8 @@ export function PokerTable() {
   const startNewGameWithDealer = async (dealerIndex: number) => {
     const { newPlayers, newDeck, nextPlayerIndex, pot } = setupNewGame(gameState, dealerIndex);
 
-    // 🚀 新AI系统：无需复杂的初始化，直接开始游戏
-    console.log('🎮 新AI架构：快速游戏启动，无需预处理');
+    // 🚀 AI系统：直接开始游戏
+    console.log('🎮 AI系统：游戏启动');
 
     // 🔥 关键修复：记录盲注到行动历史
     const blindActions: ActionHistoryItem[] = [];
@@ -363,7 +336,7 @@ export function PokerTable() {
       content: actionMessageContent
     };
 
-    // 🚀 新AI系统：无需维护会话历史
+    // 🚀 AI系统：简化的会话管理
 
     // 记录玩家行为
     const handStrength = evaluateHand(player.holeCards, gameState.communityCards).rank;
@@ -378,7 +351,7 @@ export function PokerTable() {
       player.personalityAnalysis = analyzePlayerPersonality(player);
     }
 
-    // 🚀 新AI系统：无需通知，直接处理
+    // 🚀 AI系统：直接处理游戏状态
 
     const newActionHistory = addActionToHistory(gameState, player.name, action, amount);
 
@@ -727,9 +700,7 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
 
       const requestStartTime = Date.now();
 
-      // 🚀 新AI系统：无需会话历史
-
-      // 🚀 新AI系统决策日志
+      // 🚀 AI系统决策日志
       console.log(`
 ⚡ ===== 新AI快速决策开始 =====
 👤 AI玩家: ${currentPlayer.name}
@@ -820,7 +791,7 @@ ${playersCanAct.map(p => `   - ${p.name}: hasActed=${p.hasActed}, currentBet=${p
         });
 
         const startTime = Date.now();
-        // 🚀 使用makeUltraFastDecision以确保使用预热的conversationId
+        // 🚀 使用makeUltraFastDecision进行智能决策
         const aiDecision = await fastDecisionEngineRef.current.makeUltraFastDecision(
           newGameState,
           currentPlayer.id,

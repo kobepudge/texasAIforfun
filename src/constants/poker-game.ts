@@ -49,8 +49,9 @@ export const CHIP_BUY_IN_OPTIONS = [
 // 默认AI配置
 export const DEFAULT_AI_CONFIG = {
   openaiApiKey: '',
-  baseUrl: 'https://api.tu-zi.com/v1',
-  model: 'claude-sonnet-4-20250514',
+  baseUrl: 'https://api.moonshot.cn/v1',
+  model: 'kimi-k2-0711-preview',
   enabled: false,
-  customModels: []
+  customModels: [],
+  enablePreflopGTO: true // 🎯 默认启用翻前GTO策略
 };

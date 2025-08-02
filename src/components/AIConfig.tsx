@@ -56,14 +56,15 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
       ...prev,
       customModels: prev.customModels.filter(m => m.id !== modelId),
       // 如果删除的是当前选中的模型，重置为默认模型
-      model: prev.model === modelId ? 'claude-sonnet-4-20250514' : prev.model
+      model: prev.model === modelId ? 'kimi-k2-0711-preview' : prev.model
     }));
   };
 
   // 🔥 更新：获取所有可用模型，添加新的Gemini模型
   const getAllModels = () => {
     const defaultModels = [
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4 (推荐)', group: 'Anthropic' },
+      { id: 'kimi-k2-0711-preview', name: 'Kimi K2 (推荐)', group: 'Moonshot' },
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', group: 'Anthropic' },
       { id: 'claude-sonnet-4-20250514-thinking', name: 'Claude Sonnet 4 Thinking', group: 'Anthropic' },
       { id: 'gemini-2.5-flash-all', name: 'Gemini 2.5 Flash All', group: 'Google' },
       { id: 'gemini-2.5-flash-lite-preview-06-17', name: 'Gemini 2.5 Flash Lite Preview', group: 'Google' },
@@ -198,9 +199,13 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
         <Card className="p-6">
           <div className="space-y-6">
             {/* 启用AI */}
-            <div className="flex items-center justify-between">
+            <div className={`flex items-center justify-between p-4 rounded-lg border-2 ${
+              tempConfig.enabled 
+                ? 'bg-green-50 border-green-300 shadow-sm' 
+                : 'bg-gray-50 border-gray-300 shadow-sm'
+            }`}>
               <div className="space-y-1">
-                <Label htmlFor="ai-enabled">启用AI决策</Label>
+                <Label htmlFor="ai-enabled" className="font-medium text-base">启用AI决策</Label>
                 <p className="text-xs text-gray-500">开启后AI将使用大模型进行智能决策</p>
               </div>
               <Switch
@@ -208,6 +213,32 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                 checked={tempConfig.enabled}
                 onCheckedChange={(checked) => 
                   setTempConfig(prev => ({ ...prev, enabled: checked }))
+                }
+              />
+            </div>
+
+            {/* 翻前GTO策略开关 */}
+            <div className={`flex items-center justify-between p-3 rounded-lg border ${
+              tempConfig.enabled 
+                ? 'bg-blue-50 border-blue-200' 
+                : 'bg-gray-50 border-gray-200 opacity-60'
+            }`}>
+              <div className="space-y-1">
+                <Label htmlFor="preflop-gto" className={!tempConfig.enabled ? 'text-gray-400' : ''}>
+                  启用翻前GTO策略
+                </Label>
+                <p className={`text-xs ${tempConfig.enabled ? 'text-gray-500' : 'text-gray-400'}`}>
+                  开启: 翻前使用GTO查表决策(0ms快速响应)<br/>
+                  关闭: 翻前也使用AI智能分析(更灵活但较慢)
+                  {!tempConfig.enabled && <><br/><span className="text-orange-400">需要先启用AI决策</span></>}
+                </p>
+              </div>
+              <Switch
+                id="preflop-gto"
+                checked={tempConfig.enablePreflopGTO ?? true} // 默认启用
+                disabled={!tempConfig.enabled} // AI未启用时禁用此开关
+                onCheckedChange={(checked) => 
+                  setTempConfig(prev => ({ ...prev, enablePreflopGTO: checked }))
                 }
               />
             </div>
@@ -234,6 +265,12 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                     <span className="text-xs text-gray-600">{tempConfig.model}</span>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span>翻前策略:</span>
+                    <span className="text-xs text-blue-600">
+                      {tempConfig.enablePreflopGTO ?? true ? '🎯 GTO查表' : '🧠 AI分析'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span>配置完整性:</span>
                     <span className={`text-xs ${tempConfig.openaiApiKey && tempConfig.baseUrl ? 'text-green-600' : 'text-red-600'}`}>
                       {tempConfig.openaiApiKey && tempConfig.baseUrl ? '✓ 完整' : '✗ 不完整'}
@@ -255,14 +292,14 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                 <Label htmlFor="base-url">API Base URL</Label>
                 <Input
                   id="base-url"
-                  placeholder="https://api.tu-zi.com/v1"
+                  placeholder="https://api.moonshot.cn/v1"
                   value={tempConfig.baseUrl}
                   onChange={(e) => 
                     setTempConfig(prev => ({ ...prev, baseUrl: e.target.value }))
                   }
                 />
                 <p className="text-xs text-gray-500">
-                  自定义API服务器地址，例如: https://api.tu-zi.com/v1
+                  自定义API服务器地址，例如: https://api.moonshot.cn/v1
                 </p>
               </div>
 
@@ -356,7 +393,12 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                 >
                   {/* 推荐模型 */}
                   <optgroup label="🔥 推荐模型">
-                    <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (推荐)</option>
+                    <option value="kimi-k2-0711-preview">Kimi K2 (推荐)</option>
+                  </optgroup>
+                  
+                  {/* Moonshot模型 */}
+                  <optgroup label="Moonshot">
+                    <option value="kimi-k2-0711-preview">Kimi K2</option>
                   </optgroup>
                   
                   {/* Anthropic模型 */}
@@ -396,7 +438,7 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                 <div className="bg-blue-50 p-3 rounded-lg text-xs">
                   <div className="font-medium text-blue-800 mb-1">💡 模型推荐</div>
                   <p className="text-blue-700">
-                    <strong>Claude Sonnet 4</strong> 是当前最推荐的模型，在德州扑克策略分析和决策制定方面表现卓越，具有出色的逻辑推理能力和游戏理解力。
+                    <strong>Kimi K2</strong> 是当前最推荐的模型，在德州扑克策略分析和决策制定方面表现卓越，具有出色的逻辑推理能力和游戏理解力。
                   </p>
                 </div>
               </div>
@@ -449,9 +491,9 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
                 配置说明
               </h4>
               <ul className="space-y-1 text-gray-600">
-                <li>• <strong>API Base URL示例:</strong> https://api.tu-zi.com/v1</li>
+                <li>• <strong>API Base URL示例:</strong> https://api.moonshot.cn/v1</li>
                 <li>• <strong>API Key格式:</strong> sk-u1oNdFZblFE09tVx2c42981a97De42C*****</li>
-                <li>• <strong>推荐模型:</strong> Claude Sonnet 4 (最佳德州扑克策略分析)</li>
+                <li>• <strong>推荐模型:</strong> Kimi K2 (最佳德州扑克策略分析)</li>
                 <li>• 每个AI机器人有独特的性格特点进行决策</li>
                 <li>• 启用AI后获得更智能的游戏体验</li>
                 <li>• API调用失败时自动切换到本地逻辑</li>
@@ -468,7 +510,7 @@ export function AIConfig({ config, onConfigUpdate }: AIConfigProps) {
               </div>
               
               <div className="mt-2 p-3 bg-green-50 rounded text-xs">
-                <strong>提示:</strong> 推荐使用Claude Sonnet 4模型获得最佳德州扑克AI体验。
+                <strong>提示:</strong> 推荐使用Kimi K2模型获得最佳德州扑克AI体验。
               </div>
             </div>
           </div>
