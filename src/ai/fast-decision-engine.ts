@@ -96,6 +96,12 @@ export class FastDecisionEngine {
     // 🎯 保存AI配置用于GTO控制
     this.aiConfig = apiConfig;
     
+    // 🔍 调试日志：显示GTO配置状态
+    console.log('🎯 FastDecisionEngine初始化 - GTO配置状态:', {
+      enablePreflopGTO: this.aiConfig.enablePreflopGTO,
+      fullConfig: this.aiConfig
+    });
+    
     const poolConfig = {
       apiKey: apiConfig.apiKey,
       baseUrl: apiConfig.baseUrl,
@@ -159,9 +165,15 @@ export class FastDecisionEngine {
     try {
       console.log('🚀 启动Ultra-Fast智能决策引擎');
 
-      // 🚀 翻前优先使用GTO查表 (0-5ms极速决策)
-      if (gameState.phase === 'preflop') {
-        console.log('⚡ 翻前阶段，优先使用GTO查表决策');
+      // 🚀 翻前GTO策略控制 - 根据用户配置决定是否使用GTO (0-5ms极速决策)
+      console.log('🔍 GTO决策检查:', {
+        phase: gameState.phase,
+        enablePreflopGTO: this.aiConfig.enablePreflopGTO,
+        willUseGTO: gameState.phase === 'preflop' && this.aiConfig.enablePreflopGTO !== false
+      });
+      
+      if (gameState.phase === 'preflop' && this.aiConfig.enablePreflopGTO !== false) {
+        console.log('⚡ 翻前阶段，GTO策略已启用，使用GTO查表决策');
 
         try {
           const gtoDecision = await this.getGTOPreflopDecision(gameState, playerId, holeCards);
@@ -173,6 +185,8 @@ export class FastDecisionEngine {
         } catch (gtoError) {
           console.warn('⚠️ GTO决策失败，回退到Context Caching:', gtoError);
         }
+      } else if (gameState.phase === 'preflop') {
+        console.log('🧠 翻前阶段，GTO策略已禁用，使用AI智能分析');
       }
 
       // 🔥 翻后或GTO失败：使用对话状态的Context Caching
@@ -265,23 +279,7 @@ export class FastDecisionEngine {
     const startTime = Date.now();
 
     try {
-      // 🎯 翻前GTO策略控制 - 根据用户配置决定是否使用GTO
-      if (gameState.phase === 'preflop' && this.aiConfig.enablePreflopGTO !== false) {
-        console.log('⚡ 翻前阶段，GTO策略已启用，使用GTO查表决策');
-
-        try {
-          const gtoDecision = await this.getGTOPreflopDecision(gameState, playerId, holeCards);
-          if (gtoDecision) {
-            const totalTime = Date.now() - startTime;
-            console.log(`⚡ GTO翻前决策完成: ${gtoDecision.action} (${totalTime}ms)`);
-            return gtoDecision;
-          }
-        } catch (gtoError) {
-          console.warn('⚠️ GTO决策失败，回退到AI决策:', gtoError);
-        }
-      } else if (gameState.phase === 'preflop') {
-        console.log('🧠 翻前阶段，GTO策略已禁用，使用AI智能分析');
-      }
+      // ✅ GTO检查已在makeDecisionFromConversation中完成，这里直接进行AI分析
 
       // 🔥 GTO失败后使用AI决策系统 (备用方案)
       console.log('🧠 使用AI决策系统 (GTO查表失败后的备用方案)');

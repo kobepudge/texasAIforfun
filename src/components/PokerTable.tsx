@@ -102,17 +102,19 @@ export function PokerTable() {
 
         console.log('🚀 初始化AI决策系统...');
 
-        // 使用默认配置或用户配置
+        // 使用默认配置或用户配置，包含完整的AI配置
         const apiConfig = {
           apiKey: aiConfig.openaiApiKey || 'demo-key',
           baseUrl: aiConfig.baseUrl || 'https://api.openai.com/v1',
-          model: aiConfig.model || 'gpt-4'
+          model: aiConfig.model || 'gpt-4',
+          enablePreflopGTO: aiConfig.enablePreflopGTO !== false // 🎯 添加GTO开关配置
         };
 
         console.log('🔧 AI配置检查:', {
           hasApiKey: !!aiConfig.openaiApiKey,
           hasBaseUrl: !!aiConfig.baseUrl,
           hasModel: !!aiConfig.model,
+          enablePreflopGTO: aiConfig.enablePreflopGTO, // 🎯 显示GTO开关状态
           apiConfig
         });
 
@@ -135,7 +137,7 @@ export function PokerTable() {
     };
 
     initializeAISystem();
-  }, [aiConfig.openaiApiKey, aiConfig.baseUrl, aiConfig.model]);
+  }, [aiConfig.openaiApiKey, aiConfig.baseUrl, aiConfig.model, aiConfig.enablePreflopGTO]); // 🎯 添加GTO开关依赖
 
   // 开始新游戏
   const startNewGame = async () => {
